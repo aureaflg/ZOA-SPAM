@@ -10,7 +10,7 @@ library(ggplot2)
 library(qqplotr)
 library(ggpubr)
 library(ggrepel)
-source("auxiliarfunctions.R")
+source("auxiliarfunctions-ZOABR.R")
 
 ####################################################################################
 ######################### Estimation process #######################################
