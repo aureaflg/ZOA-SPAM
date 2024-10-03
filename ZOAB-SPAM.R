@@ -12,6 +12,7 @@ library(aod)
 library(ggplot2)
 library(qqplotr)
 library(ggpubr)
+library(ggrepel)
 
 ####################################################################################
 ######################### Estimation process #######################################
