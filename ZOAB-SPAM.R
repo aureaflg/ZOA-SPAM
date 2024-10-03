@@ -310,19 +310,37 @@ loglog  <- function()
                  valideta = valideta, name = link), class = "link-gamlss")
 }
 
+## Example on how to use the GAMLSS with our distribution
+## In mod1, y is the response variable, x is a covariate (continuous or discrete) 
+## in the parametric part of the model, z is a continuous covariate which relation   
+## with the response is unknown and will approximated by a P-spline. 
+## In GAMLSS pb() is the function for P-spline, inter is the number of knots we want 
+## to settle and lambda is the smooth parameter. 
+## If the inter and lambda parameters are not set by the user, they will be estimated 
+## by the function. sigma.formula is the linear predictor related to precision parameter (phi) 
+## of the ZOAB distribution, nu.formula and tau.formula  are the linear predictors related 
+## to probability of occurence of zero and one, respectively.
+##  Inside the family distribution, we set the link functions, here I set just for mu and phi.           
+# mod1=gamlss(y~1+x1+pb(z,control=pb.control(inter=50),lambda = 100),
+#            sigma.formula =~1+x2,nu.formula =~1+z0,tau.formula =~1+z1, 
+#             family = BETINF(mu.link="logit",sigma.link = "log"))
 
+## If the link function is not implemented in GAMLSS, as the loglog link, we can implement
+## and use as in mod2 example.            
+# mod2=gamlss(y~1+x+pb(z,control=pb.control(inter=50),lambda = 100),
+#            sigma.formula =~1+e,nu.formula =~1+fl,tau.formula =~1+m, 
+#             family = BETINF(mu.link=loglog(),sigma.link = "log"))            
 
-
-            
+                    
 ##RQR
-RQR=function(mod){
+RQR.ZOAB=function(mod){
   y=mod$y
   tau=mod$tau.coefficients
   rho=mod$nu.coefficients
-  Fl=mod$nu.x
-  M=mod$tau.x
-  predf<-Fl%*%rho
-  predm<-M%*%tau
+  Z0=mod$nu.x
+  Z1=mod$tau.x
+  predf<-Z0%*%rho
+  predm<-Z1%*%tau
   p0=exp(predf)/(1+exp(predf)+exp(predm))
   p1=exp(predm)/(1+exp(predf)+exp(predm))
   mu=mod$mu.fv
@@ -343,5 +361,98 @@ RQR=function(mod){
 }
 
 
+
+
+## Standard error discrete part
+stderror.disc=function(mod,conf=0.95){
+  tau=mod$tau
+  rho=mod$rho
+  Z0=mod$nu.x
+  Z1=mod$tau.x
+  k0=length(rho)
+  k1=length(tau)
+  n=mod$ntol
+  
+  predf<-Z0%*%rho
+  predm<-Z1%*%tau
+  p0=exp(predf)/(1+exp(predf)+exp(predm))
+  p1=exp(predm)/(1+exp(predf)+exp(predm))
+  zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
+  Zast<-diag(c(zast))
+  
+  IFrho<- t(Z0)%*%diag(as.vector(p0*(1-p0)),n)%*%Z0
+  IFtau<- t(Z1)%*%diag(as.vector(p1*(1-p1)),n)%*%Z1
+  IFpr<- t(Z0)%*%diag(as.vector(-p0*p1),n)%*%Z1
+  IF<-matrix(rbind(cbind(IFrho, IFpr),cbind(t(IFpr), IFtau)),nrow=k0+k1,ncol=k0+k1)
+  
+  coefdisc=c(rho,tau)
+  IF1=solve(IF)
+  EPdisc=sqrt(diag(IF1))
+  VARdisc=diag(IF1)
+  valorpdisc = 0
+  walddisc = 0
+  for(i in 1:length(coefdisc)){
+    walddisc[i] = wald.test(VARdisc[i], coefdisc[i], Terms = 1)$result$chi2[1]
+    valorpdisc[i] = wald.test(VARdisc[i], coefdisc[i], Terms = 1)$result$chi2[3]
+  }
+  IC<-function(nconf,param, EP){
+    lower<- c(param)-qnorm(1-nconf/2)*EP
+    upper<- c(param)+qnorm(1-nconf/2)*EP
+    obj.out <- list(IC=cbind(cbind(lower,upper)))
+    return(obj.out)
+  }
+  
+  interval=rbind(IC(1-conf, rho, EPdisc[1:k0])$IC,
+                 IC(1-conf, tau, EPdisc[(k0+1):(k0+k1)])$IC)
+  
+  coefficientsd = data.frame(coefdisc, EPdisc, round(valorpdisc,digits = 4),interval)
+  colnames(coefficientsd) = c("Estimate","Std.err", "Pr(>|W|)","IC-lower","IC-upper")
+  return(printCoefmat(as.matrix(coefficientsd), digits = 4))
+}
+
+
+gmu=function(mod,alpha=NULL){
+  x = mod$mu.link
+  mu=mod$mu.fv
+  
+  if(x=="logit"){
+    dmu=(1/mu+1/(1-mu))^(-1)
+    d2mu2=-1/mu^2+1/(1-mu)^2
+  }
+  if(x=="cloglog"){
+    dmu=(1/(log(1-mu)*(mu-1)))^(-1)
+    d2mu2=-(log(1-mu)+1)/(log(1-mu)*(mu-1))^2
+  }
+  if(x=="loglog"){
+    dmu=(-1/(mu*log(mu)))^(-1)
+    d2mu2=(log(mu)+1)/(mu^2*log(mu)^2)
+  }
+  if(x=="cauchit"){
+    dmu=(pi/(cos(pi*(mu-1/2)))^2)^(-1)
+    d2mu2=(2*pi^2*sin(pi*(mu-1/2)))/(cos(pi*(mu-1/2)))^3
+  }
+  if(x=="probit"){
+    dmu=(1/dnorm(qnorm(mu)))^(-1)
+    d2mu2=-dnorm(qnorm(mu))*(-qnorm(mu))/(dnorm(qnorm(mu)))^3
+  }
+  ddmu<-list("dmu"=dmu,"d2mu2"=d2mu2)
+}
+gphi=function(mod){
+  x=mod$sigma.link
+  phi=mod$sigma.fv
+  if(x=="log"){
+    dphi=(1/phi)^(-1)
+    d2phi2=-1/phi^2
+  }
+  if(x=="1/x^2"){
+    dphi=(-(2/phi^3))^(-1)
+    d2phi2=6/phi^4
+  }
+  if(x=="sqrt"){
+    dphi=((1/2)*phi^(-1/2))^(-1)
+    d2phi2=(-1/4)*phi^(-3/2)
+  }
+  ddphi<-list("dphi"=dphi,"d2phi2"=d2phi2)
+}            
 
 
