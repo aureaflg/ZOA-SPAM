@@ -1,19 +1,25 @@
+##This model was implemented in GAMLSS package
 library(gamlss)
 library(purrr)
-library(ggplot2)
+library(betareg)
 library(Matrix)
 library(matrixcalc)
 library(GoFKernel)
 library(pracma)
+library(cubature)
 library(rootSolve)
+library(aod)
+library(ggplot2)
+library(qqplotr)
+library(ggpubr)
 library(ggrepel)
 
+####################################################################################
+######################### Estimation process #######################################
+####################################################################################
 
 dSIM<-function (x, mu = 0.5, sigma = 1, log = FALSE) 
 {
-    #if(any(0.99999<mu & mu<1.000001)){
-    #  mu[which(0.99999<mu & mu<1.000001)]=0.9999
-    #}
     if (any(mu <= 0)) 
         stop(paste("mu must be between 0 and 1", "\n",""))
     if (any(sigma <= 0)) 
@@ -385,80 +391,6 @@ RQR=function(mod){
 
 
 
-##Standard Error discrete part
-n=mod$N
-tau=mod$tau.coefficients
-rho=mod$nu.coefficients
-Fl=mod$nu.x
-M=mod$tau.x
-k0=length(rho)
-k1=length(tau)
-
-predf<-Fl%*%rho
-predm<-M%*%tau
-p0=exp(predf)/(1+exp(predf)+exp(predm))
-p1=exp(predm)/(1+exp(predf)+exp(predm))
-zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
-Zast<-diag(c(zast))
-
-IFrho<- t(Fl)%*%diag(as.vector(p0*(1-p0)),n)%*%Fl
-IFtau<- t(M)%*%diag(as.vector(p1*(1-p1)),n)%*%M
-IFpr<- t(Fl)%*%diag(as.vector(-p0*p1),n)%*%M
-IF<-matrix(rbind(cbind(IFrho, IFpr),cbind(t(IFpr), IFtau)),nrow=k0+k1,ncol=k0+k1)
-
-coefdisc=c(rho,tau)
-IF1=solve(IF)
-EPdisc=sqrt(diag(IF1))
-VARdisc=diag(IF1)
-valorpdisc = 0
-walddisc = 0
-for(i in 1:length(coefdisc)){
-  walddisc[i] = wald.test(VARdisc[i], coefdisc[i], Terms = 1)$result$chi2[1]
-  valorpdisc[i] = wald.test(VARdisc[i], coefdisc[i], Terms = 1)$result$chi2[3]
-}
-coefficientsd = data.frame(coefdisc, EPdisc, walddisc, valorpdisc)
-colnames(coefficientsd) = c("Estimate","Std.err", "Wald", "Pr(>|W|)")
-printCoefmat(as.matrix(coefficientsd), digits = options()$digits)
-
-##Standard Error continuous part
-degree=3
-order=2
-n=mod$N
-mu=mod$mu.fv
-phi=mod$sigma.fv
-zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
-s=ncol(mod$sigma.x)
-p=ncol(mod$mu.x)-ncol(mod$mu.s)
-
-nq=ncol(mod$mu.s)
-qj=0
-for(i in 1:nq){
-  qj[i]=length(mod$mu.coefSmo[[i]][11]$knots)
-}
-
-X=as.matrix(mod$mu.x[,-which(colnames(mod$mu.x) %in% colnames(mod$mu.s))])
-bet=matrix(mod$mu.coefficients[-which(colnames(mod$mu.x) %in% colnames(mod$mu.s))], nrow=p)
-kapp=matrix(mod$sigma.coefficients,nrow=s)
-gamms=list(NULL)
-for(i in 1:nq){
-  gamms[[i]]=mod$mu.coefSmo[[i]][1]$coef
-}
-gamm=Reduce("rbind",gamms)
-
-N=mod$sigma.x
-Bs<-list(NULL)
-Ds<-list(NULL)
-for (i in 1:nq){
-  ajus=pb(mod$mu.x[,which(colnames(mod$mu.x) %in% colnames(mod$mu.s)[i])],
-          degree=degree,order=order,
-          control=pb.control(inter=(length(mod$mu.coefSmo[[1]]$knots)-3)),
-          lambda = mod$mu.lambda[i])
-  Bs[[i]]=attr(ajus,"X")
-  Ds[[i]]=t(attr(ajus,"D"))%*%attr(ajus,"D")*mod$mu.lambda[i]
-}
-
-B=Reduce("cbind",Bs)
-D=bdiag(Ds)
 
 gmu=function(mod,alpha=NULL){
   x = mod$mu.link
@@ -503,157 +435,4 @@ gphi=function(mod){
   }
   ddphi<-list("dphi"=dphi,"d2phi2"=d2phi2)
 }
-
-T1=diag(gmu(mod)$dmu,n)
-T2=diag(gphi(mod)$dphi,n)
-
-W1<- (1/phi)*(((3*phi)/(mu*(1-mu)))+(1/(mu^3*(1-mu)^3)))*gmu(mod)$dmu^2
-W<- diag(as.numeric((1-zast)*W1),n)
-P1 <- as.vector((1/(2*phi^2))*gphi(mod)$dphi^2)
-P<- diag(as.numeric((1-zast)*P1),n)
-
-
-Kbb= t(X)%*%W%*%X
-Kkk= t(N)%*%P%*%N
-Kgg= t(B)%*%W%*%B+D
-Kbk= matrix(0,ncol=s,nrow=p)
-Kgk= matrix(0,ncol=qj,nrow=s)
-Kbg= t(X)%*%W%*%B
-Kggl=t(B)%*%W%*%B
-Ktt=rbind(cbind(Kbb,Kbk,Kbg),cbind(t(Kbk),Kkk,Kgk),cbind(t(Kbg),t(Kgk),Kgg))
-Kttinv=ginv(as.matrix(Ktt))
-coef=c(mod$mu.coefficients[-5])
-EP=sqrt(diag(Kttinv)[1:length(coef)])
-VAR=diag(Kttinv)[1:length(coef)]
-valorp = 0
-wald = 0
-for(i in 1:length(coef)){
-  wald[i] = wald.test(VAR[i], coef[i], Terms = 1)$result$chi2[1]
-  valorp[i] = wald.test(VAR[i], coef[i], Terms = 1)$result$chi2[3]
-}
-coefficients = data.frame(coef, EP, valorp)
-colnames(coefficients) = c("Estimate","Std.err",  "Pr(>|W|)")
-printCoefmat(as.matrix(coefficients), digits = options()$digits)
-
-##Residuals
-smp <- data.frame(norm = modolos$residuals)
-envesim<-ggplot(data = smp, mapping = aes(sample = norm))  +
-  stat_qq_band(conf = 0.95) +
-  stat_qq_line() +
-  stat_qq_point() +
-  labs(x = "Theoretical Quantiles", y = "Quantile Residuals ZOAS-SPAM") +
-  theme(
-    panel.border = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.background = element_blank(),
-    axis.line = element_line(colour = "grey"),
-    text=element_text(size=15,family="serif")
-  )
-qplot(seq_along(mod$residuals),mod$residuals)+ 
-  xlab("Index") + ylab("Quantile Residuals") +
-  theme(
-    panel.border = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.background = element_blank(),
-    axis.line = element_line(colour = "grey"),
-    text=element_text(size=15,family="serif")
-  )
-
-##Diagnostic
-#Hessian matrix for discrete part
-tau=mod$tau.coefficients
-rho=mod$nu.coefficients
-Fl=mod$nu.x
-M=mod$tau.x
-k0=length(rho)
-k1=length(tau)
-
-predf<-Fl%*%rho
-predm<-M%*%tau
-p0=exp(predf)/(1+exp(predf)+exp(predm))
-p1=exp(predm)/(1+exp(predf)+exp(predm))
-zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
-Zast<-diag(c(zast))
-
-Urho<- t(Fl)%*%(zast*(1-mod$y)-p0)
-Utau<- t(M)%*%(zast*mod$y-p1)
-Uesc<-matrix(c(Urho,Utau), ncol=1)
-
-Urr<- -t(Fl)%*%diag(as.vector(p0*(1-p0)),n)%*%Fl
-Uttau<- -t(M)%*%diag(as.vector(p1*(1-p1)),n)%*%M
-Urtau<- -t(Fl)%*%diag(as.vector(-p0*p1),n)%*%M
-Udisc<-matrix(rbind(cbind(Urr, Urtau),cbind(t(Urtau), Uttau)),nrow=k0+k1,ncol=k0+k1)
-Udiscinv=ginv(as.matrix(-Udisc))
-
-
-#Local influence
-#Case-weight perturbation
-deltarhoc=t(Fl)%*%diag(as.numeric(zast*(1-mod$y)-p0),n)
-deltatauc=t(M)%*%diag(as.numeric(zast*mod$y-p1),n)
-deltacasosd=rbind(deltarhoc,deltatauc)
-Zcdi=t(deltacasosd)%*%Udiscinv%*%deltacasosd
-Cmaxcdi=abs(eigen(Zcdi)$vectors[,1])
-qplot(seq_along(Cmaxcdi),Cmaxcdi,geom = "point",label = seq(1,length(Cmaxcdi),1))+ 
-  xlab("Index") + ylab(expression(l[max])) +
-  geom_text_repel(aes(label=ifelse(((Cmaxcdi)> 0.2),paste0(1:n),""))) +
-  theme(
-    panel.border = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.background = element_blank(),
-    axis.line = element_line(colour = "grey"),
-    text=element_text(size=15,family="serif")
-  )
-
-
-
-#Hessian matrix for continuous part
-Phistar=diag(1/mod$sigma.fv,n)
-phi=mod$sigma.fv
-mu=mod$mu.fv
-y=mod$y
-Q=Qstar=R=U=S=diag(0,n)
-d=ul=0
-a=0
-d=ifelse(mod$y==0 | mod$y==1,0,(y-mu)^2/(y*(1-y)*(mu^2)*(1-mu)^2))
-a=-1/2*phi+d*(1/(2*phi^2))
-U=diag((1/(mu*(1-mu)))*(d + (1/(mu^2*(1-mu)^2))),n)
-ul=(2*(y-mu)*U)/(mu*(1-mu)) + (3-6*mu)/(mu^4*(1-mu)^4) + ((1-2*mu)*d)/(mu^2*(1-mu)^2)
-Q=diag(as.vector((1-zast)*((1/phi)*((diag(U)-(y-mu)*ul)+diag(U)*(y-mu)*gmu(mod)$dmu*gmu(mod)$d2mu2)*gmu(mod)$dmu^2)),n)
-Qstar=diag((1-zast)*(1/phi^2)*diag(U)*(y-mu)*gmu(mod)$dmu*gphi(mod)$dphi,n)
-S=diag((1-zast)*((1/(2*phi^2)-1/phi^3*d+a*gphi(mod)$dphi*gphi(mod)$d2phi2)*gphi(mod)$dphi^2),n)
-
-Ubb=-t(X)%*%Q%*%X
-Ukk=-t(N)%*%S%*%N
-Ugg=-t(B)%*%Q%*%B-D
-Ubk= -t(X)%*%Qstar%*%N
-Ugk=-t(B)%*%Qstar%*%N
-Ubg=-t(X)%*%Q%*%B
-Uggl=-t(B)%*%Q%*%B
-Utt=rbind(cbind(Ubb,Ubg,Ubk),cbind(t(Ubg),Ugg,Ugk),cbind(t(Ubk),t(Ugk),Ukk))
-Uttinv=ginv(as.matrix(-Utt))
-
-
-#Influencia local
-#perturbacao de casos
-deltabc=t(X)%*%T1%*%U%*%Phistar%*%diag((y-mu),n)
-deltagc=t(B)%*%T1%*%U%*%Phistar%*%diag((y-mu),n)
-deltakc=t(N)%*%T2%*%diag(a,n)
-deltacasos=rbind(deltabc,deltagc,deltakc)
-Zc=t(deltacasos)%*%Uttinv%*%deltacasos
-Cmaxc=Re(eigen(Zc)$vectors[,1])/sum(abs(eigen(Zc)$vectors[,1]))
-qplot(seq_along(Cmaxc),Cmaxc,geom = "point",label = seq(1,length(Cmaxc),1))+ 
-  xlab("Index") + ylab("dmáx") +
-  geom_text_repel(aes(label=ifelse(((Cmaxc)> 0.24),paste0(1:n),""))) +
-  theme(
-    panel.border = element_blank(),
-    panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank(),
-    panel.background = element_blank(),
-    axis.line = element_line(colour = "grey"),
-    text=element_text(size=15,family="serif")
-  )
-
 
