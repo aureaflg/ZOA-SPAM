@@ -9,6 +9,7 @@ library(ggplot2)
 library(ggrepel)
 library(aod)
 library(qqplotr)
+library(ggpubr)
 source("auxiliarfunctions.R")
 
 ####################################################################################
@@ -731,6 +732,7 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
               tau.x=M,data=data,
               y=y,mu.coefSmo=mu.coefSmo,
               mu.lp=mu.lp,phi.lp=phi.lp,
+              residuals=resiquan,
               aic=quant1$aic,
               bic=quant1$bic,aicc=quant1$aicc,
               hqic=quant1$hqic,sabic=quant1$sabic))
@@ -766,7 +768,52 @@ RQR.ZOABR=function(mod){
   return(resiquan)
 }
 
+plotres=function(mod){
+  res=RQR.ZOABR(mod)
+  smp <- data.frame(norm = res)
+  s1<-ggplot(data = smp, mapping = aes(sample = norm))  +
+    stat_qq_band(conf = 0.95) +
+    stat_qq_line() +
+    stat_qq_point() +
+    labs(x = "Theoretical Quantiles", y = "Quantile Residuals") +
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  s2<-ggplot()+
+    geom_point(aes(x=seq_along(res),y=res))+ 
+    xlab("Index") + ylab("Quantile Residuals") +
+    geom_hline(yintercept=-2,linetype="dashed")+ 
+    geom_hline(yintercept=2,linetype="dashed")+ 
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  datresi=data.frame(res=res)
+  s3<-ggplot(datresi, aes(x = res, y = after_stat(density))) + 
+    geom_histogram(fill = "grey", color = "black",bins = 10) +
+    xlab("Quantile Residuals") + ylab("density") +
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  
+  print(ggarrange(s1,s2,s3))
+}
 
+## Standard error discrete part
 stderror.disc=function(mod,conf=0.95){
   tau=mod$tau
   rho=mod$rho
@@ -811,5 +858,325 @@ stderror.disc=function(mod,conf=0.95){
   coefficientsd = data.frame(coefdisc, EPdisc, round(valorpdisc,digits = 4),interval)
   colnames(coefficientsd) = c("Estimate","Std.err", "Pr(>|W|)","IC-lower","IC-upper")
   return(printCoefmat(as.matrix(coefficientsd), digits = 4))
+}
+
+gmu=function(mod){
+  x = mod$mu.link
+  mu=mod$mu.fv
+  
+  if(x=="logit"){
+    dmu=(1/mu+1/(1-mu))^(-1)
+    d2mu2=-1/mu^2+1/(1-mu)^2
+  }
+  if(x=="cloglog"){
+    dmu=(1/(log(1-mu)*(mu-1)))^(-1)
+    d2mu2=-(log(1-mu)+1)/(log(1-mu)*(mu-1))^2
+  }
+  if(x=="loglog"){
+    dmu=(-1/(mu*log(mu)))^(-1)
+    d2mu2=(log(mu)+1)/(mu^2*log(mu)^2)
+  }
+  if(x=="cauchit"){
+    dmu=(pi/(cos(pi*(mu-1/2)))^2)^(-1)
+    d2mu2=(2*pi^2*sin(pi*(mu-1/2)))/(cos(pi*(mu-1/2)))^3
+  }
+  if(x=="probit"){
+    dmu=(1/dnorm(qnorm(mu)))^(-1)
+    d2mu2=-dnorm(qnorm(mu))*(-qnorm(mu))/(dnorm(qnorm(mu)))^3
+  }
+  ddmu<-list("dmu"=dmu,"d2mu2"=d2mu2)
+}
+gphi=function(mod){
+  x=mod$phi.link
+  phi=mod$phi.fv
+  if(x=="log"){
+    dphi=(1/phi)^(-1)
+    d2phi2=-1/phi^2
+  }
+  if(x=="1/x^2"){
+    dphi=(-(2/phi^3))^(-1)
+    d2phi2=6/phi^4
+  }
+  if(x=="sqrt"){
+    dphi=((1/2)*phi^(-1/2))^(-1)
+    d2phi2=(-1/4)*phi^(-3/2)
+  }
+  ddphi<-list("dphi"=dphi,"d2phi2"=d2phi2)
+}
+gmu=function(mod){
+  x = mod$mu.link
+  mu=mod$mu.fv
+  
+  if(x=="logit"){
+    dmu=(1/mu+1/(1-mu))^(-1)
+    d2mu2=-1/mu^2+1/(1-mu)^2
+  }
+  if(x=="cloglog"){
+    dmu=(1/(log(1-mu)*(mu-1)))^(-1)
+    d2mu2=-(log(1-mu)+1)/(log(1-mu)*(mu-1))^2
+  }
+  if(x=="loglog"){
+    dmu=(-1/(mu*log(mu)))^(-1)
+    d2mu2=(log(mu)+1)/(mu^2*log(mu)^2)
+  }
+  if(x=="cauchit"){
+    dmu=(pi/(cos(pi*(mu-1/2)))^2)^(-1)
+    d2mu2=(2*pi^2*sin(pi*(mu-1/2)))/(cos(pi*(mu-1/2)))^3
+  }
+  if(x=="probit"){
+    dmu=(1/dnorm(qnorm(mu)))^(-1)
+    d2mu2=-dnorm(qnorm(mu))*(-qnorm(mu))/(dnorm(qnorm(mu)))^3
+  }
+  ddmu<-list("dmu"=dmu,"d2mu2"=d2mu2)
+}
+
+
+gphi=function(mod){
+  x=mod$phi.link
+  phi=mod$phi.fv
+  if(x=="log"){
+    dphi=(1/phi)^(-1)
+    d2phi2=-1/phi^2
+  }
+  if(x=="1/x^2"){
+    dphi=(-(2/phi^3))^(-1)
+    d2phi2=6/phi^4
+  }
+  if(x=="sqrt"){
+    dphi=((1/2)*phi^(-1/2))^(-1)
+    d2phi2=(-1/4)*phi^(-3/2)
+  }
+  ddphi<-list("dphi"=dphi,"d2phi2"=d2phi2)
+}
+
+## Standard error continuous part
+stderror.cont=function(mod,conf=0.95){
+B=mod$mu.coefSmo[[1]]$B
+X=mod$mu.x
+N=mod$sigma.x
+nq=ncol(mod$mu.s)
+y=mod$y
+qj=lambda=0
+for(i in 1:nq){
+  qj[i]=ncol(mod$mu.coefSmo[[i]]$Bk)
+  if(i==1){
+    lambda[(1:qj[i])]=mod$mu.coefSmo[[i]]$lambda
+  }
+  else lambda[(sum(qj[1:(i-1)])+1):(sum(qj[1:(i-1)])+qj[i])]=
+      mod$mu.coefSmo[[i]]$lambda
+}
+D=0.5*lambda*mod$mu.coefSmo[[1]]$D
+n=mod$ntol
+s=ncol(mod$sigma.x)
+p=ncol(mod$mu.x)
+
+gamm=mod$mu.coefSmo[[1]]$gamm
+bet=mod$bet
+kapp=mod$kapp
+
+
+phi=mod$phi.fv
+mu=mod$mu.fv
+alpha=mod$alpha
+zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
+
+epi=1-sqrt(1-4*alpha*mu*(1-mu))
+delta=(mu-0.5+0.5*(1-epi))/(1-epi)
+a=delta*phi
+b=(1-delta)*phi
+v=epi^(1-zast)/((epi+(1-epi)*dbeta(y,a,b))^(1-zast))
+logy=ifelse(mod$y>0 & mod$y<1,log(mod$y),0)
+logyc=ifelse(mod$y>0 & mod$y<1,log(1-mod$y),0)
+ystar=(logy-logyc-digamma(a)+digamma(b))
+Ie=list()
+for(i in 1:length(epi)){
+  sbet=(1-zast[i])*((((2*alpha*(1-2*mu[i]))/(1-epi[i]))*(v[i]/epi[i]-(1-v[i])/(1-epi[i]))+
+                       ((1-v[i])*(1-alpha)*phi[i]/(1-epi[i])^3*ystar[i]))*gmu(mod)$dmu[i]*X[i,])
+  skap=-(1-zast[i])*(1-v[i])*(mu[i]*ystar[i]+logyc[i]-digamma(b[i])+
+                                digamma(phi[i]))*gphi(mod)$dphi[i]*N[i,]
+  salp=(1-zast[i])*(((2*mu[i]*(1-mu[i])/(1-epi[i]))*(v[i]/epi[i]-(1-v[i])/(1-epi[i])))-
+                      ((phi[i]*mu[i]*(1-mu[i])*(1-2*mu[i]))/(1-epi[i])^3)*ystar[i])
+  sgam=(1-zast[i])*((((2*alpha*(1-2*mu[i]))/(1-epi[i]))*(v[i]/epi[i]-(1-v[i])/(1-epi[i]))+
+                       ((1-v[i])*(1-alpha)*phi[i]/(1-epi[i])^3*ystar[i]))*gmu(mod)$dmu[i]*B[i,])-D%*%gamm
+  sy=as.vector(c(sbet,skap,salp,sgam))
+  Ie[[i]]=sy%*%t(sy)
+}
+Ief=Reduce("+",Ie)
+
+Ieinv=ginv(Ief)
+coef=c(mod$bet,mod$kapp,mod$alpha)
+EP=sqrt(diag(Ieinv)[1:length(coef)])
+VAR=diag(Ieinv)[1:length(coef)]
+valorp = 0
+wald = 0
+for(i in 1:length(coef)){
+  wald[i] = wald.test(VAR[i], coef[i], Terms = 1)$result$chi2[1]
+  valorp[i] = wald.test(VAR[i], coef[i], Terms = 1)$result$chi2[3]
+}
+IC<-function(nconf,param, EP){
+  lower<- c(param)-qnorm(1-nconf/2)*EP
+  upper<- c(param)+qnorm(1-nconf/2)*EP
+  obj.out <- list(IC=cbind(cbind(lower,upper)))
+  return(obj.out)
+}
+
+interval=rbind(IC(1-conf, bet, EP[1:p])$IC,
+               IC(1-conf, kapp, EP[(p+1):(s+p)])$IC,
+               IC(1-conf, alpha, EP[(s+p+1)])$IC)
+
+
+coefficients = data.frame(coef, EP,  round(valorp,4), interval)
+colnames(coefficients) = c("Estimate","Std.err", "Pr(>|W|)","IC-lower","IC-upper")
+return(printCoefmat(as.matrix(coefficients), digits = 4))
+}
+
+
+#Local influence discrete part
+#Case-weight perturbation
+# if you want to highlight a point, use the argument ref to do so
+localdisc=function(mod,ref=0.5){
+tau=mod$tau
+rho=mod$rho
+Fl=mod$nu.x
+M=mod$tau.x
+k0=length(rho)
+k1=length(tau)
+
+predf<-Fl%*%rho
+predm<-M%*%tau
+p0=exp(predf)/(1+exp(predf)+exp(predm))
+p1=exp(predm)/(1+exp(predf)+exp(predm))
+zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
+Zast<-diag(c(zast))
+
+Urho<- t(Fl)%*%(zast*(1-mod$y)-p0)
+Utau<- t(M)%*%(zast*mod$y-p1)
+Uesc<-matrix(c(Urho,Utau), ncol=1)
+
+Urr<- -t(Fl)%*%diag(as.vector(p0*(1-p0)),n)%*%Fl
+Uttau<- -t(M)%*%diag(as.vector(p1*(1-p1)),n)%*%M
+Urtau<- -t(Fl)%*%diag(as.vector(-p0*p1),n)%*%M
+Udisc<-matrix(rbind(cbind(Urr,Urtau ),cbind(t(Urtau), Uttau)),nrow=k0+k1,ncol=k0+k1)
+Udiscinv=ginv(as.matrix(-Udisc))
+
+deltarhoc=t(Fl)%*%diag(as.numeric(zast*(1-mod$y)-p0),n)
+deltatauc=t(M)%*%diag(as.numeric(zast*mod$y-p1),n)
+deltacasosd=rbind(deltarhoc,deltatauc)
+Zcdi=t(deltacasosd)%*%Udiscinv%*%deltacasosd
+Cmaxcdi=abs(eigen(Zcdi)$vectors[,1])
+s1<-qplot(seq_along(Cmaxcdi),Cmaxcdi,geom = "point",label = seq(1,length(Cmaxcdi),1))+ 
+  xlab("Index") + ylab(expression(l[max])) +
+  geom_text_repel(aes(label=ifelse(((Cmaxcdi)> ref),paste0(1:n),""))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    axis.line = element_line(colour = "grey"),
+    text=element_text(size=20,family="serif")
+  )
+  print(s1)
+}
+
+
+#Local influence continuous part
+#Case-weight perturbation
+# if you want to highlight a point, use the argument ref to do so
+
+localcont=function(mod, ref=0.5){
+phi=mod$phi.fv
+mu=mod$mu.fv
+ntol=mod$ntol
+alpha=mod$alpha
+epi=1-sqrt(1-4*alpha*mu*(1-mu))
+delta=(mu-0.5+0.5*(1-epi))/(1-epi)
+a=delta*phi
+b=(1-delta)*phi
+logy=ifelse(mod$y>0 & mod$y<1,log(mod$y),0)
+logyc=ifelse(mod$y>0 & mod$y<1,log(1-mod$y),0)
+v=epi^(1-zast)/((epi+(1-epi)*dbeta(y,a,b))^(1-zast))
+T2=diag(as.vector(gphi(mod)$dphi),ntol)
+T1=diag(as.vector(gmu(mod)$dmu),ntol)
+B=mod$mu.coefSmo[[1]]$B
+X=mod$mu.x
+N=mod$sigma.x
+nq=ncol(mod$mu.s)
+qj=lambda=0
+for(i in 1:nq){
+  qj[i]=ncol(mod$mu.coefSmo[[i]]$Bk)
+  if(i==1){
+    lambda[(1:qj[i])]=mod$mu.coefSmo[[i]]$lambda
+  }
+  else lambda[(sum(qj[1:(i-1)])+1):(sum(qj[1:(i-1)])+qj[i])]=
+      mod$mu.coefSmo[[i]]$lambda
+}
+D=0.5*lambda*mod$mu.coefSmo[[1]]$D
+
+f1=(2*alpha*(1-2*mu))/(1-epi)
+f2=(v/epi-(1-v)/(1-epi))
+ff=(1-zast)*(f1*f2+(1-v)*(1-alpha)*(phi/((1-epi)^3))*(logy-logyc-digamma(a)+digamma(b)))
+f3=(4*(alpha^2)*(1-2*mu)^2)/((1-epi)^2)
+f4=(-v/(epi^2)-(1-v)/((1-epi)^2))
+f5=(-(4*alpha)/(1-epi)+(4*alpha^2*(1-2*mu)^2)/((1-epi)^3))
+f6=(((1-alpha)*phi^2)/((1-epi)^6))*(trigamma(a)+trigamma(b))
+f7=((6*alpha*phi*(1-2*mu))/((1-epi)^5))*(logy-logyc-digamma(a)+digamma(b)) 
+R=diag(as.vector((1-zast)*(f3*f4+f2*f5+(1-alpha)*(1-v)*(-f6+f7))*gmu(mod)$dmu^2-
+                   ff*gmu(mod)$dmu^3*gmu(mod)$d2mu2),ntol)
+pp=(1-zast)*(1-v)*(delta*(logy-logyc-digamma(a)+digamma(b))+logyc-digamma(b)+digamma(phi))
+S=diag(as.vector((1-zast)*(-(1-v)*((1-delta)^2*trigamma(b)+delta^2*trigamma(a)-trigamma(phi)))*gphi(mod)$dphi^2-
+                   pp*gphi(mod)$dphi^3*gphi(mod)$d2phi2),n)
+ff1=(2*mu*(1-mu))/(1-epi)
+ff2=(phi*mu*(1-mu)*(1-2*mu))/((1-epi)^3)
+d1=(1-zast)*(ff1*f2-((1-v)*ff2*(logy-logyc-digamma(a)+digamma(b))))
+d=sum(d1)
+f8=(4*mu^2*(1-mu)^2)/((1-epi)^2)
+f9=(phi*mu^2*(1-mu)^2*(1-2*mu))/((1-epi)^5)
+f10=(phi*(1-2*mu))/(1-epi)
+J1=(1-zast)*(f8*(f4+f2*(1/(1-epi)))-(1-v)*f9*(f10*(trigamma(a)+trigamma(b))+6*(logy-logyc-digamma(a)+digamma(b))))
+J=sum(J1)
+C=diag(as.vector((1-zast)*( -(1-v)*(((1-alpha)/((1-epi)^3))*(phi*delta*(trigamma(a)+trigamma(b))-phi*trigamma(b)-
+                                                               (logy-logyc-digamma(a)+digamma(b))))*gphi(mod)$dphi*gmu(mod)$dmu)),n)
+ff3=(4*alpha*mu*(1-mu)*(1-2*mu))/((1-epi)^2)
+ff4=2*(1-2*mu)*((1-epi)^(-1)+(2*alpha*mu*(1-mu))/(1-epi)^3)
+ff5=((1-alpha)*phi^2*mu*(1-mu)*(1-2*mu))/(1-epi)^6*(trigamma(a)+trigamma(b))
+ff6=-phi*((1-epi)^(-3)-(6*(1-alpha)*mu*(1-mu))/(1-epi)^5)
+sstar=(1-zast)*(ff3*f4+f2*ff4+(1-v)*(ff5+(logy-logyc-digamma(a)+digamma(b))*ff6))
+cstar=(1-zast)*(1-v)*(((mu*(1-mu)*(1-2*mu))/(1-epi)^3)*(phi*delta*(trigamma(a)+
+                                                                     trigamma(b))-phi*trigamma(b)-(logy-logyc-digamma(a)+digamma(b))))
+
+Ubb=t(X)%*%R%*%X
+Ukk=t(N)%*%S%*%N
+Ugg=t(B)%*%R%*%B-D
+Uaa=J
+Ubk=-t(X)%*%C%*%N
+Ugk=-t(B)%*%C%*%N
+Ubg=t(X)%*%R%*%B
+Uka=-t(N)%*%T2%*%cstar
+Uba=t(X)%*%T1%*%sstar
+Uga=t(B)%*%T1%*%sstar
+Utt=rbind(cbind(Ubb,Ubg,Ubk,Uba),cbind(t(Ubg),Ugg,Ugk,Uga),
+          cbind(t(Ubk),t(Ugk),Ukk,Uka),cbind(t(Uba),t(Uga),t(Uka),Uaa))
+
+Uttinv=ginv(as.matrix(-Utt))
+
+deltabc=t(X)%*%T1%*%diag(as.vector(ff),n)
+deltagc=t(B)%*%T1%*%diag(as.vector(ff),n)
+deltakc=t(N)%*%T2%*%diag(as.vector(pp),n)
+deltaac=t(d1)
+deltacasos=rbind(deltabc,deltagc,deltakc,deltaac)
+Zc=t(deltacasos)%*%Uttinv%*%deltacasos
+Cmaxc=abs(eigen(Zc)$vectors[,1])
+s1<-qplot(seq_along(Cmaxc),Cmaxc,geom = "point",label = seq(1,length(Cmaxc),1))+ 
+  xlab("Index") + ylab(expression(l[max])) +
+  geom_text_repel(aes(label=ifelse(((Cmaxc)> ref),paste0(1:n),""))) +
+  theme(
+    panel.border = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    axis.line = element_line(colour = "grey"),
+    text=element_text(size=20,family="serif")
+  )
+print(s1)
 }
 
