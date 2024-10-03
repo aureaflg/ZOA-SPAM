@@ -903,51 +903,7 @@ gphi=function(mod){
   }
   ddphi<-list("dphi"=dphi,"d2phi2"=d2phi2)
 }
-gmu=function(mod){
-  x = mod$mu.link
-  mu=mod$mu.fv
-  
-  if(x=="logit"){
-    dmu=(1/mu+1/(1-mu))^(-1)
-    d2mu2=-1/mu^2+1/(1-mu)^2
-  }
-  if(x=="cloglog"){
-    dmu=(1/(log(1-mu)*(mu-1)))^(-1)
-    d2mu2=-(log(1-mu)+1)/(log(1-mu)*(mu-1))^2
-  }
-  if(x=="loglog"){
-    dmu=(-1/(mu*log(mu)))^(-1)
-    d2mu2=(log(mu)+1)/(mu^2*log(mu)^2)
-  }
-  if(x=="cauchit"){
-    dmu=(pi/(cos(pi*(mu-1/2)))^2)^(-1)
-    d2mu2=(2*pi^2*sin(pi*(mu-1/2)))/(cos(pi*(mu-1/2)))^3
-  }
-  if(x=="probit"){
-    dmu=(1/dnorm(qnorm(mu)))^(-1)
-    d2mu2=-dnorm(qnorm(mu))*(-qnorm(mu))/(dnorm(qnorm(mu)))^3
-  }
-  ddmu<-list("dmu"=dmu,"d2mu2"=d2mu2)
-}
 
-
-gphi=function(mod){
-  x=mod$phi.link
-  phi=mod$phi.fv
-  if(x=="log"){
-    dphi=(1/phi)^(-1)
-    d2phi2=-1/phi^2
-  }
-  if(x=="1/x^2"){
-    dphi=(-(2/phi^3))^(-1)
-    d2phi2=6/phi^4
-  }
-  if(x=="sqrt"){
-    dphi=((1/2)*phi^(-1/2))^(-1)
-    d2phi2=(-1/4)*phi^(-3/2)
-  }
-  ddphi<-list("dphi"=dphi,"d2phi2"=d2phi2)
-}
 
 ## Standard error continuous part
 stderror.cont=function(mod,conf=0.95){
