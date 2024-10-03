@@ -5,11 +5,11 @@ library(Matrix)
 library(GoFKernel)
 library('VGAM')
 library(MASS)
-library(ggplot2)
-library(ggrepel)
 library(aod)
+library(ggplot2)
 library(qqplotr)
 library(ggpubr)
+library(ggrepel)
 source("auxiliarfunctions.R")
 
 ####################################################################################
