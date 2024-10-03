@@ -160,125 +160,18 @@ rBRINF<-function (n, mu = 0.5, alpha=0.5, phi = 1, p0 = 0.1, p1 = 0.1)
   y
 }
 
-pBRINF2<-function (q, mu = 0.5, alpha= 0.5, sigma = 1, 
-                   p0 = 0.1, p1 = 0.1, lower.tail = TRUE, 
-                   log.p = FALSE) {
-  if (any(mu <= 0) | any(mu >= 1)) 
-    stop(paste("mu must be between 0 and 1", "\n", ""))
-  if (any(alpha <= 0) | any(alpha >= 1)) 
-    stop(paste("alpha must be between 0 and 1", "\n", ""))
-  if (any(sigma <= 0)) 
-    stop(paste("sigma must be greated than 0", "\n", ""))
-  if (any(nu <= 0)) 
-    stop(paste("nu must greated than 0", "\n", ""))
-  if (any(tau <= 0)) 
-    stop(paste("tau must greated than 0", "\n", ""))
-  if (any(q < 0) | any(q > 1)) 
-    stop(paste("y must be 0<=y<=1, i.e. 0 to 1 inclusively", 
-               "\n", ""))
-  lp <- pmax.int(length(q), length(mu), length(sigma),
-                 length(alpha),
-                 length(p0),length(p1))
-  q <- rep(q, length = lp)
-  sigma <- rep(sigma, length = lp)
-  alpha <- rep(alpha, length = lp)
-  mu <- rep(mu, length = lp)
-  nu <- rep(nu, length = lp)
-  tau <- rep(tau, length = lp)
-  p <- rep(0, length = lp)
-  for(k in 1:lp){
-    if(q[k]==0 & q[k]==1){
-      p[k]=(p0[k]+p1[k])*pbinom(q[k],1,p1[k]/(p0[k]+p1[k]))
-    }
-    if(q[k]>0 & q[k]<1){
-      p[k] = (1-p0[k]-p1[k])*pBRr(q[k], mu = mu[k], alpha=alpha[k],
-                                  sigma=sigma[k],lower.tail=TRUE,log.p=FALSE)
-    }
-  }
-  if (lower.tail == TRUE) p <- p
-  else p = 1 - p
-  if (log.p == FALSE) p <- p
-  else p <- log(p)
-  p
-}
-
-pZOABR<- function(y,p0,p1,mu,sigma,alpha){
-  part<-which(y>0 & y<1)
-  y<-y[part]
-  p0<-p0[part]
-  p1<-p1[part]
-  mu<-mu[part]
-  sigma<-sigma[part]
-  epi<- 1-sqrt(1- 4*alpha*mu*(1-mu))
-  delta<- (mu - 0.5*epi)/(1-epi)
-  BR<- epi*punif(y,0,1) + (1-epi)*pbeta(y,delta*sigma,
-                                        (1-delta)*sigma)
-  tau<- p0+p1
-  eta<- p1/tau
-  FD<- tau*pbinom(y,1,eta) + (1-tau)*BR
-  return(FD)
-}
-
-qBRINF<-function (p, mu = 0.5, alpha=0.5, sigma = 1, nu = 0.1, tau = 0.1, lower.tail = TRUE, 
-                  log.p = FALSE) {
-  if (any(mu <= 0) | any(mu >= 1)) 
-    stop(paste("mu must be between 0 and 1", "\n", ""))
-  if (any(alpha <= 0) | any(alpha >= 1)) 
-    stop(paste("alpha must be between 0 and 1", "\n", ""))
-  if (any(sigma <= 0)) 
-    stop(paste("sigma must be greated than 0", "\n", ""))
-  if (any(nu <= 0)) 
-    stop(paste("nu must greated than 0", "\n", ""))
-  if (any(tau <= 0)) 
-    stop(paste("tau must greated than 0", "\n", ""))
-  if (any(p < 0) | any(p > 1)) 
-    stop(paste("p must be between 0 and 1", "\n", ""))
-  if (log.p == TRUE) 
-    p <- exp(p)
-  else p <- p
-  if (lower.tail == TRUE) 
-    p <- p
-  else p <- 1 - p
-  lp <- pmax.int(length(p), length(mu), length(sigma),length(alpha),
-                 length(nu),length(tau))
-  p <- rep(p, length = lp)
-  sigma <- rep(sigma, length = lp)
-  alpha <- rep(alpha, length = lp)
-  mu <- rep(mu, length = lp)
-  nu <- rep(nu, length = lp)
-  tau <- rep(tau, length = lp)
-  q <- rep(0, length = lp)
-  for(k in 1:lp){
-    if(p[k]<=(nu[k]/(1+nu[k]+tau[k]))){
-      q[k]<-0
-      next
-    }
-    if(p[k]>=((1+nu[k])/(1+nu[k]+tau[k]))){
-      q[k]<-1
-      next
-    }else{
-      q[k]<-qBRr((p[k]- (nu[k]/(1 + nu[k] + tau[k])))/
-                   (1/(1 + nu[k] + tau[k])),
-                 mu = mu[k],alpha=alpha[k],sigma = sigma[k],
-                 lower.tail=TRUE, log.p=FALSE)
-    }
-  }
-  q
-}
-
-
 
 ###Algorithm for discrete part
-EF<- function(y,Fl,M, iter,trace) {
+EF<- function(y,Z0,Z1, iter,trace) {
   
-  k0<- ncol(Fl)
-  k1<- ncol(M)
+  k0<- ncol(Z0)
+  k1<- ncol(Z1)
   n<- length(y)
   
   if(k0>1 & k1>1){ #to model the probability of zeros and ones
     
     con<-gamlss.control(trace=FALSE)
-    fit=gamlss(y~ 1, nu.formula=~ -1+Fl,tau.formula=~ -1+M,
+    fit=gamlss(y~ 1, nu.formula=~ -1+Z0,tau.formula=~ -1+Z1,
                family=BEINF,control=con)
     
     #Initializes rho, tau beta estimators with MV
@@ -299,20 +192,20 @@ EF<- function(y,Fl,M, iter,trace) {
       count=count+1
       
       # Link functions
-      predf<-Fl%*%rho
-      predm<-M%*%tau
+      predf<-Z0%*%rho
+      predm<-Z1%*%tau
       p0=exp(predf)/(1+exp(predf)+exp(predm))
       p1=exp(predm)/(1+exp(predf)+exp(predm))
       zast<-ifelse(y==0 | y==1, 1,0)
       Zast<-diag(c(zast))
       
-      Urho<- t(Fl)%*%(zast*(1-y)-p0)
-      Utau<- t(M)%*%(zast*y-p1)
+      Urho<- t(Z0)%*%(zast*(1-y)-p0)
+      Utau<- t(Z1)%*%(zast*y-p1)
       U<-matrix(c(Urho,Utau), ncol=1)
       
-      IFrho<- t(Fl)%*%diag(as.vector(p0*(1-p0)),n)%*%Fl
-      IFtau<- t(M)%*%diag(as.vector(p1*(1-p1)),n)%*%M
-      IFpr<- t(Fl)%*%diag(as.vector(-p0*p1),n)%*%M
+      IFrho<- t(Z0)%*%diag(as.vector(p0*(1-p0)),n)%*%Z0
+      IFtau<- t(Z1)%*%diag(as.vector(p1*(1-p1)),n)%*%Z1
+      IFpr<- t(Z0)%*%diag(as.vector(-p0*p1),n)%*%Z1
       IF<-matrix(rbind(cbind(IFrho, IFpr),cbind(t(IFpr), IFtau)),nrow=k0+k1,ncol=k0+k1)
       
       th<-th + ginv(IF)%*%U
@@ -334,8 +227,8 @@ EF<- function(y,Fl,M, iter,trace) {
       }
     }
     
-    predf<-Fl%*%rho
-    predm<-M%*%tau
+    predf<-Z0%*%rho
+    predm<-Z1%*%tau
     p0=exp(predf)/(1+exp(predf)+exp(predm))
     p1=exp(predm)/(1+exp(predf)+exp(predm))
     obj.out <- list(rho=rho, tau=tau, EP=sqrt(diag(solve(IF))), 
@@ -468,7 +361,7 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
   }else model.frame(mcall, data = data)[,1]
   N <- if(is.null(data)){ model.matrix(formula.phi)
   }else model.matrix(formula.phi, data = data)
-  Fl <- if(is.null(data)){
+  Z0 <- if(is.null(data)){
     if(length(attr(model.matrix(formula.nu),"assign"))==1){
       as.matrix(rep(1,nrow(mu.X)))
     }else{model.matrix(formula.nu)}
@@ -476,7 +369,7 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
     if(length(attr(model.matrix(formula.nu, data = data),"assign"))==1){
       as.matrix(rep(1,nrow(mu.X)))
     }else{model.matrix(formula.nu, data = data)}}
-  M <- if(is.null(data)){
+  Z1 <- if(is.null(data)){
     if(length(attr(model.matrix(formula.tau),"assign"))==1){
       as.matrix(rep(1,nrow(mu.X)))
     }else{model.matrix(formula.tau)}
@@ -493,8 +386,8 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
   p<-ncol(X)
   s<-ncol(N)
   nq<-ncol(Z)
-  s0<-ncol(Fl)
-  s1<-ncol(M)
+  s0<-ncol(Z0)
+  s1<-ncol(Z1)
   ntol<-nrow(X)
   
   ##Defining the basis matrix and penalization matrix
@@ -544,7 +437,7 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
   
   #Estimating discrete part
   
-  fitdisc<- EF(y,Fl,M, iter=30,trace=trace)
+  fitdisc<- EF(y,Z0,Z1, iter=30,trace=trace)
   
   
   #Estimating continuous part
@@ -686,7 +579,7 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
   } else {print('Link function not defined')
   } 
   
-  if(ncol(Fl)<2 & ncol(M)<2){
+  if(ncol(Z0)<2 & ncol(Z1)<2){
     p0<-fitdisc$p0
     p1<-fitdisc$p1
     n0<- length(which(y==0))
@@ -699,7 +592,7 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
                 tau=p1/(1-p0-p1))
     rQ<- qnorm(ut)
   }
-  if(ncol(Fl)>1 & ncol(M)>1){
+  if(ncol(Z0)>1 & ncol(Z1)>1){
     p0<-fitdisc$p0
     p1<-fitdisc$p1
     n0<- length(which(y==0))
@@ -728,8 +621,8 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
               phi.formula=formula.phi, 
               nu.formula=formula.nu,
               tau.formula=formula.tau,
-              mu.x=X,sigma.x=N,nu.x=Fl,
-              tau.x=M,data=data,
+              mu.x=X,sigma.x=N,nu.x=Z0,
+              tau.x=Z1,data=data,
               y=y,mu.coefSmo=mu.coefSmo,
               mu.lp=mu.lp,phi.lp=phi.lp,
               residuals=resiquan,
@@ -817,22 +710,22 @@ plotres=function(mod){
 stderror.disc=function(mod,conf=0.95){
   tau=mod$tau
   rho=mod$rho
-  Fl=mod$nu.x
-  M=mod$tau.x
+  Z0=mod$nu.x
+  Z1=mod$tau.x
   k0=length(rho)
   k1=length(tau)
   n=mod$ntol
   
-  predf<-Fl%*%rho
-  predm<-M%*%tau
+  predf<-Z0%*%rho
+  predm<-Z1%*%tau
   p0=exp(predf)/(1+exp(predf)+exp(predm))
   p1=exp(predm)/(1+exp(predf)+exp(predm))
   zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
   Zast<-diag(c(zast))
   
-  IFrho<- t(Fl)%*%diag(as.vector(p0*(1-p0)),n)%*%Fl
-  IFtau<- t(M)%*%diag(as.vector(p1*(1-p1)),n)%*%M
-  IFpr<- t(Fl)%*%diag(as.vector(-p0*p1),n)%*%M
+  IFrho<- t(Z0)%*%diag(as.vector(p0*(1-p0)),n)%*%Z0
+  IFtau<- t(Z1)%*%diag(as.vector(p1*(1-p1)),n)%*%Z1
+  IFpr<- t(Z0)%*%diag(as.vector(-p0*p1),n)%*%Z1
   IF<-matrix(rbind(cbind(IFrho, IFpr),cbind(t(IFpr), IFtau)),nrow=k0+k1,ncol=k0+k1)
   
   coefdisc=c(rho,tau)
@@ -993,30 +886,30 @@ return(printCoefmat(as.matrix(coefficients), digits = 4))
 localdisc=function(mod,ref=0.5){
 tau=mod$tau
 rho=mod$rho
-Fl=mod$nu.x
-M=mod$tau.x
+Z0=mod$nu.x
+Z1=mod$tau.x
 k0=length(rho)
 k1=length(tau)
 
-predf<-Fl%*%rho
-predm<-M%*%tau
+predf<-Z0%*%rho
+predm<-Z1%*%tau
 p0=exp(predf)/(1+exp(predf)+exp(predm))
 p1=exp(predm)/(1+exp(predf)+exp(predm))
 zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
 Zast<-diag(c(zast))
 
-Urho<- t(Fl)%*%(zast*(1-mod$y)-p0)
-Utau<- t(M)%*%(zast*mod$y-p1)
+Urho<- t(Z0)%*%(zast*(1-mod$y)-p0)
+Utau<- t(Z1)%*%(zast*mod$y-p1)
 Uesc<-matrix(c(Urho,Utau), ncol=1)
 
-Urr<- -t(Fl)%*%diag(as.vector(p0*(1-p0)),n)%*%Fl
-Uttau<- -t(M)%*%diag(as.vector(p1*(1-p1)),n)%*%M
-Urtau<- -t(Fl)%*%diag(as.vector(-p0*p1),n)%*%M
+Urr<- -t(Z0)%*%diag(as.vector(p0*(1-p0)),n)%*%Z0
+Uttau<- -t(Z1)%*%diag(as.vector(p1*(1-p1)),n)%*%Z1
+Urtau<- -t(Z0)%*%diag(as.vector(-p0*p1),n)%*%Z1
 Udisc<-matrix(rbind(cbind(Urr,Urtau ),cbind(t(Urtau), Uttau)),nrow=k0+k1,ncol=k0+k1)
 Udiscinv=ginv(as.matrix(-Udisc))
 
-deltarhoc=t(Fl)%*%diag(as.numeric(zast*(1-mod$y)-p0),n)
-deltatauc=t(M)%*%diag(as.numeric(zast*mod$y-p1),n)
+deltarhoc=t(Z0)%*%diag(as.numeric(zast*(1-mod$y)-p0),n)
+deltatauc=t(Z1)%*%diag(as.numeric(zast*mod$y-p1),n)
 deltacasosd=rbind(deltarhoc,deltatauc)
 Zcdi=t(deltacasosd)%*%Udiscinv%*%deltacasosd
 Cmaxcdi=abs(eigen(Zcdi)$vectors[,1])
