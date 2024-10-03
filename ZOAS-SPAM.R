@@ -557,5 +557,231 @@ gphi=function(mod){
   ddphi<-list("dphi"=dphi,"d2phi2"=d2phi2)
 }
 
-## Standard error continuous part    
+## Standard error continuous part               
+stderror.cont=function(mod,conf=0.95){
+  degree=3
+  order=2
+  n=mod$N
+  mu=mod$mu.fv
+  phi=mod$sigma.fv
+  zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
+  s=ncol(mod$sigma.x)
+  p=ncol(mod$mu.x)-ncol(mod$mu.s)
+  
+  nq=ncol(mod$mu.s)
+  qj=0
+  for(i in 1:nq){
+    qj[i]=length(mod$mu.coefSmo[[i]][11]$knots)
+  }
+  
+  X=as.matrix(mod$mu.x[,-which(colnames(mod$mu.x) %in% colnames(mod$mu.s))])
+  bet=matrix(mod$mu.coefficients[-which(colnames(mod$mu.x) %in% colnames(mod$mu.s))], nrow=p)
+  kapp=matrix(mod$sigma.coefficients,nrow=s)
+  gamms=list(NULL)
+  for(i in 1:nq){
+    gamms[[i]]=mod$mu.coefSmo[[i]][1]$coef
+  }
+  gamm=Reduce("rbind",gamms)
+  
+  N=mod$sigma.x
+  Bs<-list(NULL)
+  Ds<-list(NULL)
+  for (i in 1:nq){
+    ajus=pb(mod$mu.x[,which(colnames(mod$mu.x) %in% colnames(mod$mu.s)[i])],
+            degree=degree,order=order,
+            control=pb.control(inter=(length(mod$mu.coefSmo[[1]]$knots)-3)),
+            lambda = mod$mu.lambda[i])
+    Bs[[i]]=attr(ajus,"X")
+    Ds[[i]]=t(attr(ajus,"D"))%*%attr(ajus,"D")*mod$mu.lambda[i]
+  }
+  
+  B=Reduce("cbind",Bs)
+  D=bdiag(Ds)
+  T1=diag(gmu(mod)$dmu,n)
+  T2=diag(gphi(mod)$dphi,n)
+  
+  W1<- (1/phi)*(((3*phi)/(mu*(1-mu)))+(1/(mu^3*(1-mu)^3)))*gmu(mod)$dmu^2
+  W<- diag(as.numeric((1-zast)*W1),n)
+  P1 <- as.vector((1/(2*phi^2))*gphi(mod)$dphi^2)
+  P<- diag(as.numeric((1-zast)*P1),n)
+  
+  
+  Kbb= t(X)%*%W%*%X
+  Kkk= t(N)%*%P%*%N
+  Kgg= t(B)%*%W%*%B+D
+  Kbk= matrix(0,ncol=s,nrow=p)
+  Kgk= matrix(0,ncol=qj,nrow=s)
+  Kbg= t(X)%*%W%*%B
+  Kggl=t(B)%*%W%*%B
+  Ktt=rbind(cbind(Kbb,Kbk,Kbg),cbind(t(Kbk),Kkk,Kgk),cbind(t(Kbg),t(Kgk),Kgg))
+  Kttinv=ginv(as.matrix(Ktt))
+  coef=c(bet,kapp)
+  EP=sqrt(diag(Kttinv)[1:length(coef)])
+  VAR=diag(Kttinv)[1:length(coef)]
+  valorp = 0
+  wald = 0
+  for(i in 1:length(coef)){
+    wald[i] = wald.test(VAR[i], coef[i], Terms = 1)$result$chi2[1]
+    valorp[i] = wald.test(VAR[i], coef[i], Terms = 1)$result$chi2[3]
+  }
+  IC<-function(nconf,param, EP){
+    lower<- c(param)-qnorm(1-nconf/2)*EP
+    upper<- c(param)+qnorm(1-nconf/2)*EP
+    obj.out <- list(IC=cbind(cbind(lower,upper)))
+    return(obj.out)
+  }
+  
+  interval=rbind(IC(1-conf, bet, EP[1:p])$IC,
+                 IC(1-conf, kapp, EP[(p+1):(s+p)])$IC)
+  
+  
+  coefficients = data.frame(coef, EP,  round(valorp,4), interval)
+  colnames(coefficients) = c("Estimate","Std.err", "Pr(>|W|)","IC-lower","IC-upper")
+  return(printCoefmat(as.matrix(coefficients), digits = 4))
+}
 
+
+
+
+#Local influence discrete part
+#Case-weight perturbation
+# if you want to highlight a point, use the argument ref to do so
+localdisc=function(mod,ref=0.5){
+  tau=mod$tau.coefficients
+  rho=mod$nu.coefficients
+  Z0=mod$nu.x
+  Z1=mod$tau.x
+  k0=length(rho)
+  k1=length(tau)
+  
+  predf<-Z0%*%rho
+  predm<-Z1%*%tau
+  p0=exp(predf)/(1+exp(predf)+exp(predm))
+  p1=exp(predm)/(1+exp(predf)+exp(predm))
+  zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
+  Zast<-diag(c(zast))
+  
+  Urho<- t(Z0)%*%(zast*(1-mod$y)-p0)
+  Utau<- t(Z1)%*%(zast*mod$y-p1)
+  Uesc<-matrix(c(Urho,Utau), ncol=1)
+  
+  Urr<- -t(Z0)%*%diag(as.vector(p0*(1-p0)),n)%*%Z0
+  Uttau<- -t(Z1)%*%diag(as.vector(p1*(1-p1)),n)%*%Z1
+  Urtau<- -t(Z0)%*%diag(as.vector(-p0*p1),n)%*%Z1
+  Udisc<-matrix(rbind(cbind(Urr,Urtau ),cbind(t(Urtau), Uttau)),nrow=k0+k1,ncol=k0+k1)
+  Udiscinv=ginv(as.matrix(-Udisc))
+  
+  deltarhoc=t(Z0)%*%diag(as.numeric(zast*(1-mod$y)-p0),n)
+  deltatauc=t(Z1)%*%diag(as.numeric(zast*mod$y-p1),n)
+  deltacasosd=rbind(deltarhoc,deltatauc)
+  Zcdi=t(deltacasosd)%*%Udiscinv%*%deltacasosd
+  Cmaxcdi=abs(eigen(Zcdi)$vectors[,1])
+  s1<-qplot(seq_along(Cmaxcdi),Cmaxcdi,geom = "point",label = seq(1,length(Cmaxcdi),1))+ 
+    xlab("Index") + ylab(expression(l[max])) +
+    geom_text_repel(aes(label=ifelse(((Cmaxcdi)> ref),paste0(1:n),""))) +
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  print(s1)
+}
+
+
+#Local influence continuous part
+#Case-weight perturbation
+# if you want to highlight a point, use the argument ref to do so
+
+localcont=function(mod,ref=0.5){
+  degree=3
+  order=2
+  n=mod$N
+  s=ncol(mod$sigma.x)
+  mu=mod$mu.fv
+  phi=mod$sigma.fv
+  zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
+  
+  if(is.null(mod$mu.s)==FALSE){
+    p=ncol(mod$mu.x)-ncol(mod$mu.s)  
+    nq=ncol(mod$mu.s)
+    qj=0
+    for(i in 1:nq){
+      qj[i]=length(mod$mu.coefSmo[[i]][11]$knots)
+    }
+    X=as.matrix(mod$mu.x[,-which(colnames(mod$mu.x) %in% colnames(mod$mu.s))])
+    bet=matrix(mod$mu.coefficients[-which(colnames(mod$mu.x) %in% colnames(mod$mu.s))], nrow=p)  
+    gamms=list(NULL)
+    for(i in 1:nq){
+      gamms[[i]]=mod$mu.coefSmo[[i]][1]$coef
+    }
+    gamm=Reduce("rbind",gamms)
+    Bs<-list(NULL)
+    Ds<-list(NULL)
+    for (i in 1:nq){
+      ajus=pb(mod$mu.x[,which(colnames(mod$mu.x) %in% colnames(mod$mu.s)[i])],
+              degree=degree,order=order,
+              control=pb.control(inter=(length(mod$mu.coefSmo[[1]]$knots)-3)),
+              lambda = mod$mu.lambda[i])
+      Bs[[i]]=attr(ajus,"X")
+      Ds[[i]]=t(attr(ajus,"D"))%*%attr(ajus,"D")*mod$mu.lambda[i]
+    }
+    
+    B=Reduce("cbind",Bs)
+    D=0.5*bdiag(Ds)
+    
+  } else{
+    p=ncol(mod$mu.x)
+    bet=matrix(mod$mu.coefficients,nrow=p)
+    X=mod$mu.x}
+  
+  kapp=matrix(mod$sigma.coefficients,nrow=s)
+  N=mod$sigma.x  
+  T1=diag(gmu(mod)$dmu,n)
+  T2=diag(gphi(mod)$dphi,n)
+  
+  
+  Phistar=diag(1/mod$sigma.fv,n)
+  y=mod$y
+  Q=Qstar=R=U=S=diag(0,n)
+  d=ul=0
+  a=0
+  d=ifelse(mod$y==0 | mod$y==1,0,(y-mu)^2/(y*(1-y)*(mu^2)*(1-mu)^2))
+  a=-1/2*phi+d*(1/(2*phi^2))
+  U=diag((1/(mu*(1-mu)))*(d + (1/(mu^2*(1-mu)^2))),n)
+  ul=(2*(y-mu)*U)/(mu*(1-mu)) + (3-6*mu)/(mu^4*(1-mu)^4) + ((1-2*mu)*d)/(mu^2*(1-mu)^2)
+  Q=diag(as.vector((1-zast)*((1/phi)*((diag(U)-(y-mu)*ul)+diag(U)*(y-mu)*gmu(mod)$dmu*gmu(mod)$d2mu2)*gmu(mod)$dmu^2)),n)
+  Qstar=diag((1-zast)*(1/phi^2)*diag(U)*(y-mu)*gmu(mod)$dmu*gphi(mod)$dphi,n)
+  S=diag((1-zast)*((1/(2*phi^2)-1/phi^3*d+a*gphi(mod)$dphi*gphi(mod)$d2phi2)*gphi(mod)$dphi^2),n)
+  
+  Ubb=-t(X)%*%Q%*%X
+  Ukk=-t(N)%*%S%*%N
+  Ugg=-t(B)%*%Q%*%B-D
+  Ubk= -t(X)%*%Qstar%*%N
+  Ugk=-t(B)%*%Qstar%*%N
+  Ubg=-t(X)%*%Q%*%B
+  Uggl=-t(B)%*%Q%*%B
+  Utt=rbind(cbind(Ubb,Ubg,Ubk),cbind(t(Ubg),Ugg,Ugk),cbind(t(Ubk),t(Ugk),Ukk))
+  Uttinv=ginv(as.matrix(-Utt))
+  
+  deltabc=t(X)%*%T1%*%U%*%Phistar%*%diag((y-mu),n)
+  deltagc=t(B)%*%T1%*%U%*%Phistar%*%diag((y-mu),n)
+  deltakc=t(N)%*%T2%*%diag(a,n)
+  deltacasos=rbind(deltabc,deltagc,deltakc)
+  Zc=t(deltacasos)%*%Uttinv%*%deltacasos
+  Cmaxc=Re(eigen(Zc)$vectors[,1])/sum(abs(eigen(Zc)$vectors[,1]))
+  s1<-qplot(seq_along(Cmaxc),Cmaxc,geom = "point",label = seq(1,length(Cmaxc),1))+ 
+    xlab("Index") + ylab(expression(l[max])) +
+    geom_text_repel(aes(label=ifelse(((Cmaxc)> ref),paste0(1:n),""))) +
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  print(s1)
+}
