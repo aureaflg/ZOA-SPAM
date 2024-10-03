@@ -1,15 +1,19 @@
 library(gamlss)
 library(matrixcalc)
-library(ggplot2)
 library(stringr)
 library(Matrix)
 library(GoFKernel)
 library('VGAM')
 library(MASS)
-source("C:/Users/aiflg/Documents/Códigos dissertação/pbfake.R")
-source("C:/Users/aiflg/Documents/Códigos dissertação/estimação lambda.R")
-source("C:/Users/aiflg/Documents/Códigos dissertação/rbetaretangular.R")
+library(ggplot2)
+library(ggrepel)
+library(aod)
+library(qqplotr)
+source("auxiliarfunctions.R")
 
+####################################################################################
+######################### Estimation process #######################################
+####################################################################################
 
 dBRINF<-function (x, mu = 0.5, alpha=0.5, sigma = 1, nu = 0.1, tau = 0.1, 
                   log = FALSE){
@@ -260,11 +264,6 @@ qBRINF<-function (p, mu = 0.5, alpha=0.5, sigma = 1, nu = 0.1, tau = 0.1, lower.
   }
   q
 }
-
-
-
-
-
 
 
 
@@ -739,7 +738,12 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
 
 
 
-RQR=function(mod){
+####################################################################################
+########################### Diagnostic tools #######################################
+####################################################################################
+
+## Residuals
+RQR.ZOABR=function(mod){
   p0<-mod$p0.fv
   p1<-mod$p1.fv
   y<-mod$y
@@ -763,106 +767,49 @@ RQR=function(mod){
 }
 
 
-
-
-sim = 100 # simulated envelope Monte Carlo (MC) replica number
-e<- matrix(0,588,sim)
-for(i in 1:sim) #loop of the MC
-{
-  e[,i]<-sort(rnorm(588,0,1))
-}
-
-e1<- numeric(n)
-e2<- numeric(n)
-for(i in 1:n){
-  eo <- sort(e[i,])
-  e1[i] <- (eo[2]+eo[3])/2
-  e2[i] <- (eo[97]+eo[98])/2
-}
-#
-med <- apply(e,1,mean)
-
-faixa<-range(residuoQ,e1,e2)
-qqnorm(residuoQ, pch = 19,ylim=faixa,main="(d)",xlab="Theoretical Quantiles",ylab="Randomized Quantile Residuals")
-par(new=TRUE)
-qqnorm(e1,axes=F,type="l",ylim=faixa,main=" ",xlab="",ylab="")
-par(new=TRUE)
-qqnorm(e2,axes=F,type="l",ylim=faixa,main=" ",xlab="",ylab="")
-par(new=TRUE)
-qqnorm(med,axes=F,type="l",lty=2,ylim=faixa,main=" ",xlab="",ylab="")
-
-
-
-
-
-##Ajustando
-dado=read.table("dados inf 100.txt")
-x=dado$x;e=dado$e;z=dado$z;m=dado$m;fl=dado$w
-phi=dado$phi;p0=dado$p0;p1=dado$p1;eta1=dado$eta1
-tau=dado$tau;nu=dado$nu
-alph=0.7
-#eta2=1+2*simu2;phi=exp(eta2)
-#eta1=-simu+d
-n=100
-alpha=rep(0,300)
-betam=matrix(0,nrow=1,ncol=300)
-kapp=rho=taum=matrix(0,nrow=2,ncol=300)
-gama=matrix(0,nrow=n,ncol=300)
-#logit
-mu=exp(eta1)/(1+exp(eta1))
-#probit
-mu=pnorm(eta1)
-#cloglog
-mu=1-exp(-exp(eta1))
-#loglog
-mu=exp(-exp(-eta1))
-#cauchit
-mu=(1/pi)*(atan(eta1)+0.5*pi)
-
-j=0
-while(j<151){
-  j=j+1
-  y<-rBRINF(n, mu = mu, alpha=alph, phi = phi, p0 = p0, p1 = p1) 
-  adjust<-try(samzoabr(y~-1+x+pb(z),formula.phi=~1+e,
-                       formula.nu =~1+fl,formula.tau =~1+m,
-                       mu.link="logit",iter=30,trace=T,
-                       knots=50,lambda=100))
-  if(inherits(adjust, "try-error"))
-  {
-    j = j-1
-    next
+stderror.disc=function(mod,conf=0.95){
+  tau=mod$tau
+  rho=mod$rho
+  Fl=mod$nu.x
+  M=mod$tau.x
+  k0=length(rho)
+  k1=length(tau)
+  n=mod$ntol
+  
+  predf<-Fl%*%rho
+  predm<-M%*%tau
+  p0=exp(predf)/(1+exp(predf)+exp(predm))
+  p1=exp(predm)/(1+exp(predf)+exp(predm))
+  zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
+  Zast<-diag(c(zast))
+  
+  IFrho<- t(Fl)%*%diag(as.vector(p0*(1-p0)),n)%*%Fl
+  IFtau<- t(M)%*%diag(as.vector(p1*(1-p1)),n)%*%M
+  IFpr<- t(Fl)%*%diag(as.vector(-p0*p1),n)%*%M
+  IF<-matrix(rbind(cbind(IFrho, IFpr),cbind(t(IFpr), IFtau)),nrow=k0+k1,ncol=k0+k1)
+  
+  coefdisc=c(rho,tau)
+  IF1=solve(IF)
+  EPdisc=sqrt(diag(IF1))
+  VARdisc=diag(IF1)
+  valorpdisc = 0
+  walddisc = 0
+  for(i in 1:length(coefdisc)){
+    walddisc[i] = wald.test(VARdisc[i], coefdisc[i], Terms = 1)$result$chi2[1]
+    valorpdisc[i] = wald.test(VARdisc[i], coefdisc[i], Terms = 1)$result$chi2[3]
   }
-  betam[j]=adjust$bet
-  kapp[,j]=adjust$kapp
-  rho[,j]=adjust$rho
-  taum[,j]=adjust$tau
-  alpha[j]=adjust$alpha
-  gama[,j]=adjust$mu.s
-  cat("iteracao"," ",j, "\n")
+  IC<-function(nconf,param, EP){
+    lower<- c(param)-qnorm(1-nconf/2)*EP
+    upper<- c(param)+qnorm(1-nconf/2)*EP
+    obj.out <- list(IC=cbind(cbind(lower,upper)))
+    return(obj.out)
+  }
+  
+  interval=rbind(IC(1-conf, rho, EPdisc[1:k0])$IC,
+  IC(1-conf, tau, EPdisc[(k0+1):(k0+k1)])$IC)
+  
+  coefficientsd = data.frame(coefdisc, EPdisc, round(valorpdisc,digits = 4),interval)
+  colnames(coefficientsd) = c("Estimate","Std.err", "Pr(>|W|)","IC-lower","IC-upper")
+  return(printCoefmat(as.matrix(coefficientsd), digits = 4))
 }
-dat=data.frame(beta1=betam[1,],kapp0=kapp[1,],
-               kapp1=kapp[2,],rho0=rho[1,],
-               rho1=rho[2,],taum0=taum[1,],
-               taum1=taum[2,],alpha=alpha,gama=t(gama))
-  
-write.table(dat,file = "Simulacao zoabr logit 100.txt")
-  
 
-dataa=data.frame(mu=adjust1$mu.s,
-                 g=factor(rep(1,500)),dd=z,d=cos(z))
-
-dataa=data.frame(mu=vec(gama[,1:150]),g=factor(rep(c(1:150), each=100)),dd=z,d=cos(z))
-ggplot(dataa,aes(x=dd,y=mu,group=g))+
-  geom_line()+
-  geom_line(aes(x = dd, y = d, group = "none", colour = "red"),size=1.2)
-
-# while(any(y>0.9999999)){
-#   y[which(y>0.9999999)]=rbeta(length(which(y>0.9999999)),
-#                               delta[which(y>0.9999999)]*phi[which(y>0.9999999)],
-#                               (1-delta[which(y>0.9999999)])*phi[which(y>0.9999999)])
-# }
-# while(any(y<1e-200 )){
-#   y[which(y<1e-200)]=rbeta(length(which(y<1e-200)),
-#                               delta[which(y<1e-200)]*phi[which(y<1e-200)],
-#                               (1-delta[which(y<1e-200)])*phi[which(y<1e-200)])
-# }
