@@ -1,18 +1,98 @@
-source("/home/aurea/Códigos dissertação/Código simplex gamlss.R")
-loglog  <- function()
+library(gamlss)
+library(purrr)
+library(ggplot2)
+library(Matrix)
+library(matrixcalc)
+library(GoFKernel)
+library(pracma)
+library(rootSolve)
+library(ggrepel)
+
+
+dSIM<-function (x, mu = 0.5, sigma = 1, log = FALSE) 
 {
-  linkfun <- function(mu) { -log(-log(mu))} 
-  linkinv <- function(eta) { 
-    thresh <- log(-log(.Machine$double.eps))
-    eta <- pmin(thresh, pmax(eta, -thresh))
-    exp(-exp(-eta))}
-  mu.eta <- function(eta) pmax(exp(-eta) * exp(-exp(-eta)), 
-                               .Machine$double.eps)
-  valideta <- function(eta) TRUE
-  link <- "loglog"
-  structure(list(linkfun = linkfun, linkinv = linkinv, mu.eta = mu.eta, 
-                 valideta = valideta, name = link), class = "link-gamlss")
+    #if(any(0.99999<mu & mu<1.000001)){
+    #  mu[which(0.99999<mu & mu<1.000001)]=0.9999
+    #}
+    if (any(mu <= 0)) 
+        stop(paste("mu must be between 0 and 1", "\n",""))
+    if (any(sigma <= 0)) 
+        stop(paste("sigma must be positive", "\n",""))
+    if (any(x <= 0) || any(x >= 1)) 
+        stop(paste(" must be between 0 and 1", "\n",""))
+    logpdf <- -((x - mu)/(mu * (1 - mu)))^2/(2 * x * (1 - x) * 
+        sigma) - (log(2 * pi * sigma) + 3 * (log(x) + log(1 - 
+        x)))/2
+    if (!log) 
+        logpdf <- exp(logpdf)
+    logpdf
 }
+
+pSIM<- function(q, mu=0.5, sigma=1, lower.tail = TRUE, log.p = FALSE){
+  if (any(q <= 0) || any(q >= 1)) 
+        stop(paste("q must be between 0 and 1", "\n", 
+            ""))
+    if (any(mu <= 0) || any(mu >= 1)) 
+        stop(paste("mu must be between 0 and 1", "\n", 
+            ""))
+    if (any(sigma <= 0)) 
+        stop(paste("sigma must be positive", "\n", 
+            ""))
+    lp <- pmax.int(length(q), length(mu), length(sigma))
+    q <- rep(q, length = lp)
+    sigma <- rep(sigma, length = lp)
+    mu <- rep(mu, length = lp)
+    zero <- rep(0, length = lp)
+    pdf <- function(x, mu, sigma) 1/sqrt(2 * pi * sigma * (x * 
+        (1 - x))^3) * exp(-1/2/sigma * (x - mu)^2/(x * (1 - 
+        x) * mu^2 * (1 - mu)^2))
+    cdfun <- function(upper, mu, sigma) {
+        int <- integrate(pdf, lower = 0, upper = upper, mu, sigma)
+        int$value
+    }
+    Vcdf <- Vectorize(cdfun)
+    cdf <- Vcdf(upper = q, mu = mu, sigma = sigma)
+    if (lower.tail == TRUE) 
+        cdf <- cdf
+    else cdf <- 1 - cdf
+    if (log.p == FALSE) 
+        cdf <- cdf
+    else cdf <- log(cdf)
+    cdf
+}
+
+qSIM<-function(p,mu=0.5,sigma=1, lower.tail = TRUE, log.p = FALSE){
+  if (any(sigma <= 0)) 
+            stop(paste("sigma must be positive", "\n", 
+                ""))
+        if (any(mu <= 0) || any(mu >= 1)) 
+            stop(paste("mu must be between 0 and 1", "\n", 
+                ""))
+        if (log.p == TRUE) 
+            p <- exp(p)
+        else p <- p
+        if (lower.tail == TRUE) 
+            p <- p
+        else p <- 1 - p
+        if (any(p < 0) | any(p > 1)) 
+            stop(paste("p must be between 0 and 1", "\n", 
+                ""))
+        lp <- max(length(p), length(mu), length(sigma))
+        p <- rep(p, length = lp)
+        sigma <- rep(sigma, length = lp)
+        mu <- rep(mu, length = lp)
+        q <- rep(0, lp)
+        h1 <- function(x, mu, sigma, p) pSIM(x, mu, sigma) - p
+        uni <- function(mu, sigma, p) {
+            val <- uniroot(h1, c(.Machine$double.eps, 1-.Machine$double.eps), mu = mu, sigma = sigma, 
+                p = p)
+            val$root
+        }
+        UNI <- Vectorize(uni)
+        q <- UNI(mu = mu, sigma = sigma, p = p)
+        q
+}
+
 
 dSIMINF<-function(x, mu = 0.5, sigma = 1, 
                   nu = 0.1, tau = 0.1, log = FALSE)
@@ -47,7 +127,7 @@ dSIMINF<-function(x, mu = 0.5, sigma = 1,
   if(log==FALSE) fy <- exp(logfy) else fy <- logfy
   fy
 }
-#------------------------------------------------------------------------------------------
+
 pSIMINF <- function(q, mu = 0.5, sigma = 1, nu = 0.1, tau = 0.1, 
                     lower.tail = TRUE, log.p = FALSE)
 {     
@@ -83,7 +163,7 @@ pSIMINF <- function(q, mu = 0.5, sigma = 1, nu = 0.1, tau = 0.1,
   if(log.p==FALSE) p <- p else p <- log(p)    
   p
 }
-#------------------------------------------------------------------------------------------
+
 qSIMINF <- function(p, mu = 0.5, sigma = 1, nu = 0.1, tau = 0.1, 
                     lower.tail = TRUE, log.p = FALSE)
 { if (any(mu <= 0) | any(mu >= 1) ) 
@@ -123,7 +203,7 @@ qSIMINF <- function(p, mu = 0.5, sigma = 1, nu = 0.1, tau = 0.1,
   }
   q
 }
-#------------------------------------------------------------------------------------------
+
 rSIMINF <- function(n, mu = 0.5, sigma = 1, nu = 0.1, tau = 0.1)
 { if (any(mu <= 0) | any(mu >= 1) )  
   stop(paste("mu must be between 0 and 1", "\n", "")) 
@@ -141,7 +221,6 @@ rSIMINF <- function(n, mu = 0.5, sigma = 1, nu = 0.1, tau = 0.1)
   r
 }
 
-#------------------------------------------------------------------------------------------
 
 SIMINF <- function (mu.link = "logit", sigma.link = "logit", 
                   nu.link = "log", tau.link = "log")
@@ -257,6 +336,22 @@ SIMINF <- function (mu.link = "logit", sigma.link = "logit",
     ),
     class = c("gamlss.family","family"))
 }
+
+loglog  <- function()
+{
+  linkfun <- function(mu) { -log(-log(mu))} 
+  linkinv <- function(eta) { 
+    thresh <- log(-log(.Machine$double.eps))
+    eta <- pmin(thresh, pmax(eta, -thresh))
+    exp(-exp(-eta))}
+  mu.eta <- function(eta) pmax(exp(-eta) * exp(-exp(-eta)), 
+                               .Machine$double.eps)
+  valideta <- function(eta) TRUE
+  link <- "loglog"
+  structure(list(linkfun = linkfun, linkinv = linkinv, mu.eta = mu.eta, 
+                 valideta = valideta, name = link), class = "link-gamlss")
+}
+
 
 
 ##RQR
