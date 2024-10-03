@@ -161,7 +161,7 @@ rBRINF<-function (n, mu = 0.5, alpha=0.5, phi = 1, p0 = 0.1, p1 = 0.1)
 }
 
 
-###Algorithm for discrete part
+
 EF<- function(y,Z0,Z1, iter,trace) {
   
   k0<- ncol(Z0)
@@ -174,11 +174,8 @@ EF<- function(y,Z0,Z1, iter,trace) {
     fit=gamlss(y~ 1, nu.formula=~ -1+Z0,tau.formula=~ -1+Z1,
                family=BEINF,control=con)
     
-    #Initializes rho, tau beta estimators with MV
     rho.ini<-as.numeric((fit$nu.coefficients))
     tau.ini<-as.numeric((fit$tau.coefficients))
-    
-    #Initial values for rho, tau
     th<-matrix(c(rho.ini, tau.ini),ncol=1)
     TH=th
     
@@ -191,7 +188,6 @@ EF<- function(y,Z0,Z1, iter,trace) {
     while(criterio > 0.00000001){
       count=count+1
       
-      # Link functions
       predf<-Z0%*%rho
       predm<-Z1%*%tau
       p0=exp(predf)/(1+exp(predf)+exp(predm))
@@ -233,20 +229,18 @@ EF<- function(y,Z0,Z1, iter,trace) {
     p1=exp(predm)/(1+exp(predf)+exp(predm))
     obj.out <- list(rho=rho, tau=tau, EP=sqrt(diag(solve(IF))), 
                     p0=p0,p1=p1,iter=count)
-    #class(obj.out) <- "EF.ZOABR"
+    
     
   } else{ #if we don't model the probability of zeros and ones
     
     con<-gamlss.control(trace=FALSE)
     fit=gamlss(y~ 1,family=BEINF,control=con)
     
-    #Initializes rho, tau beta estimators with MV
     nu<- as.numeric(fit$nu.fv[1])
     tau<- as.numeric(fit$tau.fv[1])
     p0.ini<- nu/(1+nu+tau)
     p1.ini<- tau/(1+nu+tau)
     
-    #Initial values for rho, tau
     th<-matrix(c(p0.ini, p1.ini),ncol=1)  
     TH=th
     
@@ -291,8 +285,6 @@ EF<- function(y,Z0,Z1, iter,trace) {
       }
     }
     obj.out<-(list(p0=p0, p1=p1, EP=sqrt(diag(ginv(IF))), iter=count))
-    #class(obj.out) <- "EF.ZOABR"
-    
     
   }
   
@@ -300,7 +292,7 @@ EF<- function(y,Z0,Z1, iter,trace) {
   
 }
 
-##Expectation of log-likelihood function
+
 Q<-function(param,v,y,N,X,gamm,D,B,lamb,lig,lig.phi){
   p=ncol(X)
   s=ncol(N)
@@ -341,15 +333,15 @@ Q<-function(param,v,y,N,X,gamm,D,B,lamb,lig,lig.phi){
   return(-Q)
 }
 
-###Algoritmo EM
-samzoabr<-function(formula.mu=formula,formula.phi=~1,
-                formula.nu=~1,formula.tau=~1,
+### Function to fit the ZOABR-SPAM
+zoabrspam<-function(mu.formula=formula,phi.formula=~1,
+                nu.formula=~1,tau.formula=~1,
                 data=NULL,mu.link,phi.link="log",
                 iter,trace,knots=20,degreepb=3,order=2,lambda=NULL,
                 method="GAIC",k=2,c=FALSE){
   
-  mcall <- if(is.null(data)){ terms(formula.mu, specials = "pb") 
-  }else terms(formula.mu, specials = "pb", data = data)    
+  mcall <- if(is.null(data)){ terms(mu.formula, specials = "pb") 
+  }else terms(mu.formula, specials = "pb", data = data)    
   mu.X <- if(is.null(data)){ model.matrix(mcall) 
   }else model.matrix(mcall, data = data)
   label <- colnames(mu.X)#attr(mcall,"term.labels") 
@@ -359,28 +351,28 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
   Z <- as.matrix(mu.X[,aux1])
   y <- if(is.null(data)){ model.frame(mcall)[,1] 
   }else model.frame(mcall, data = data)[,1]
-  N <- if(is.null(data)){ model.matrix(formula.phi)
-  }else model.matrix(formula.phi, data = data)
+  N <- if(is.null(data)){ model.matrix(phi.formula)
+  }else model.matrix(phi.formula, data = data)
   Z0 <- if(is.null(data)){
-    if(length(attr(model.matrix(formula.nu),"assign"))==1){
+    if(length(attr(model.matrix(nu.formula),"assign"))==1){
       as.matrix(rep(1,nrow(mu.X)))
-    }else{model.matrix(formula.nu)}
+    }else{model.matrix(nu.formula)}
   }else{ 
-    if(length(attr(model.matrix(formula.nu, data = data),"assign"))==1){
+    if(length(attr(model.matrix(nu.formula, data = data),"assign"))==1){
       as.matrix(rep(1,nrow(mu.X)))
-    }else{model.matrix(formula.nu, data = data)}}
+    }else{model.matrix(nu.formula, data = data)}}
   Z1 <- if(is.null(data)){
-    if(length(attr(model.matrix(formula.tau),"assign"))==1){
+    if(length(attr(model.matrix(tau.formula),"assign"))==1){
       as.matrix(rep(1,nrow(mu.X)))
-    }else{model.matrix(formula.tau)}
+    }else{model.matrix(tau.formula)}
   }else{ 
-    if(length(attr(model.matrix(formula.tau, data = data),"assign"))==1){
+    if(length(attr(model.matrix(tau.formula, data = data),"assign"))==1){
       as.matrix(rep(1,nrow(mu.X)))
-    }else{model.matrix(formula.tau, data = data)}}
+    }else{model.matrix(tau.formula, data = data)}}
   
   
   if(is.null(data)){
-    data=cbind(model.frame(mcall),model.frame(formula.phi))
+    data=cbind(model.frame(mcall),model.frame(phi.formula))
   } else data=data
   
   p<-ncol(X)
@@ -617,10 +609,10 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
               phi.fv=phi.fv,p0.fv=fitdisc$p0,
               p1.fv=fitdisc$p1,
               mu.link=mu.link,phi.link=phi.link,
-              ntol=ntol,mu.formula=formula.mu,
-              phi.formula=formula.phi, 
-              nu.formula=formula.nu,
-              tau.formula=formula.tau,
+              ntol=ntol,mu.formula=mu.formula,
+              phi.formula=phi.formula, 
+              nu.formula=nu.formula,
+              tau.formula=tau.formula,
               mu.x=X,sigma.x=N,nu.x=Z0,
               tau.x=Z1,data=data,
               y=y,mu.coefSmo=mu.coefSmo,
@@ -630,6 +622,22 @@ samzoabr<-function(formula.mu=formula,formula.phi=~1,
               bic=quant1$bic,aicc=quant1$aicc,
               hqic=quant1$hqic,sabic=quant1$sabic))
 }
+
+## Example on how to use the zoabrspam function
+## In mod1, y is the response variable, x is a covariate (continuous or discrete) 
+## in the parametric part of the model, z is a continuous covariate which relation   
+## with the response is unknown and will approximated by a P-spline. 
+## Here, pb() is the function for P-spline, knots is the number of knots we want 
+## to settle and lambda is the smooth parameter. 
+## If the lambda parameter is not set by the user, it will be estimated 
+## by the function. phi.formula is the linear predictor related to precision parameter (phi) 
+## of the ZOABR distribution, nu.formula and tau.formula  are the linear predictors related 
+## to probability of occurence of zero and one, respectively. The link function related to
+## mu and phi can be set using mu.link and phi.link, respectively.            
+## mod1=zoabrspam(y~1+x+pb(z), phi.formula=~1+e,
+##                 nu.formula =~1+z0,tau.formula =~1+z1,
+##                 mu.link="logit",iter=30,
+##                 knots=50,lambda=100))
 
 
 
