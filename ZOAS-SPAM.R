@@ -359,9 +359,39 @@ loglog  <- function()
 }
 
 
+## Example on how to use the GAMLSS with our distribution
+## In mod1, y is the response variable, x is a covariate (continuous or discrete) 
+## in the parametric part of the model, z is a continuous covariate which relation   
+## with the response is unknown and will approximated by a P-spline. 
+## In GAMLSS pb() is the function for P-spline, inter is the number of knots we want 
+## to settle and lambda is the smooth parameter. 
+## If the inter and lambda parameters are not set by the user, they will be estimated 
+## by the function. sigma.formula is the linear predictor related to dispersion parameter (phi) 
+## of the ZOAS distribution, nu.formula and tau.formula  are the linear predictors related 
+## to probability of occurence of zero and one, respectively.
+##  Inside the family distribution, we set the link functions, here I set just for mu and phi.           
+# mod1=gamlss(y~1+x1+pb(z,control=pb.control(inter=50),lambda = 100),
+#            sigma.formula =~1+x2,nu.formula =~1+z0,tau.formula =~1+z1, 
+#             family = SIMINF(mu.link="logit",sigma.link = "log"))
 
-##RQR
-RQR=function(mod){
+## If the link function is not implemented in GAMLSS, as the loglog link, we can implement
+## and use as in mod2 example.            
+# mod2=gamlss(y~1+x+pb(z,control=pb.control(inter=50),lambda = 100),
+#            sigma.formula =~1+e,nu.formula =~1+fl,tau.formula =~1+m, 
+#             family = SIMINF(mu.link=loglog(),sigma.link = "log"))            
+
+
+
+
+
+
+####################################################################################
+########################### Diagnostic tools #######################################
+####################################################################################
+
+
+## Residuals
+RQR.ZOAS=function(mod){
   y=mod$y
   tau=mod$tau.coefficients
   rho=mod$nu.coefficients
@@ -388,7 +418,98 @@ RQR=function(mod){
   return(resiquan)
 }
 
+plotres=function(mod){
+  res=RQR.ZOAS(mod)
+  smp <- data.frame(norm = res)
+  s1<-ggplot(data = smp, mapping = aes(sample = norm))  +
+    stat_qq_band(conf = 0.95) +
+    stat_qq_line() +
+    stat_qq_point() +
+    labs(x = "Theoretical Quantiles", y = "Quantile Residuals") +
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  s2<-ggplot()+
+    geom_point(aes(x=seq_along(res),y=res))+ 
+    xlab("Index") + ylab("Quantile Residuals") +
+    geom_hline(yintercept=-2,linetype="dashed")+ 
+    geom_hline(yintercept=2,linetype="dashed")+ 
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  datresi=data.frame(res=res)
+  s3<-ggplot(datresi, aes(x = res, y = after_stat(density))) + 
+    geom_histogram(fill = "grey", color = "black",bins = 10) +
+    xlab("Quantile Residuals") + ylab("density") +
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  
+  print(ggarrange(s1,s2,s3))
+}
 
+
+## Standard error discrete part
+stderror.disc=function(mod,conf=0.95){
+  tau=mod$tau
+  rho=mod$rho
+  Z0=mod$nu.x
+  Z1=mod$tau.x
+  k0=length(rho)
+  k1=length(tau)
+  n=mod$ntol
+  
+  predf<-Z0%*%rho
+  predm<-Z1%*%tau
+  p0=exp(predf)/(1+exp(predf)+exp(predm))
+  p1=exp(predm)/(1+exp(predf)+exp(predm))
+  zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
+  Zast<-diag(c(zast))
+  
+  IFrho<- t(Z0)%*%diag(as.vector(p0*(1-p0)),n)%*%Z0
+  IFtau<- t(Z1)%*%diag(as.vector(p1*(1-p1)),n)%*%Z1
+  IFpr<- t(Z0)%*%diag(as.vector(-p0*p1),n)%*%Z1
+  IF<-matrix(rbind(cbind(IFrho, IFpr),cbind(t(IFpr), IFtau)),nrow=k0+k1,ncol=k0+k1)
+  
+  coefdisc=c(rho,tau)
+  IF1=solve(IF)
+  EPdisc=sqrt(diag(IF1))
+  VARdisc=diag(IF1)
+  valorpdisc = 0
+  walddisc = 0
+  for(i in 1:length(coefdisc)){
+    walddisc[i] = wald.test(VARdisc[i], coefdisc[i], Terms = 1)$result$chi2[1]
+    valorpdisc[i] = wald.test(VARdisc[i], coefdisc[i], Terms = 1)$result$chi2[3]
+  }
+  IC<-function(nconf,param, EP){
+    lower<- c(param)-qnorm(1-nconf/2)*EP
+    upper<- c(param)+qnorm(1-nconf/2)*EP
+    obj.out <- list(IC=cbind(cbind(lower,upper)))
+    return(obj.out)
+  }
+  
+  interval=rbind(IC(1-conf, rho, EPdisc[1:k0])$IC,
+                 IC(1-conf, tau, EPdisc[(k0+1):(k0+k1)])$IC)
+  
+  coefficientsd = data.frame(coefdisc, EPdisc, round(valorpdisc,digits = 4),interval)
+  colnames(coefficientsd) = c("Estimate","Std.err", "Pr(>|W|)","IC-lower","IC-upper")
+  return(printCoefmat(as.matrix(coefficientsd), digits = 4))
+}
 
 
 
@@ -435,4 +556,6 @@ gphi=function(mod){
   }
   ddphi<-list("dphi"=dphi,"d2phi2"=d2phi2)
 }
+
+## Standard error continuous part    
 
