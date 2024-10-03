@@ -3,14 +3,20 @@ library(gamlss)
 library(purrr)
 library(betareg)
 library(Matrix)
-library(ggplot2)
 library(matrixcalc)
 library(GoFKernel)
 library(pracma)
 library(cubature)
 library(rootSolve)
 library(aod)
+library(ggplot2)
 library(qqplotr)
+library(ggpubr)
+
+####################################################################################
+######################### Estimation process #######################################
+####################################################################################
+
 
 dBET<-function(y, mu=0.5, sigma=1, log = FALSE){
   if(any(0.99999<mu & mu<1.000001)){
