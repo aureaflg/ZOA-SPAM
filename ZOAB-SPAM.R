@@ -331,8 +331,17 @@ loglog  <- function()
 #            sigma.formula =~1+e,nu.formula =~1+fl,tau.formula =~1+m, 
 #             family = BETINF(mu.link=loglog(),sigma.link = "log"))            
 
+
+
+
+
+            
+####################################################################################
+########################### Diagnostic tools #######################################
+####################################################################################
+            
                     
-##RQR
+## Residuals
 RQR.ZOAB=function(mod){
   y=mod$y
   tau=mod$tau.coefficients
@@ -360,6 +369,51 @@ RQR.ZOAB=function(mod){
   return(resiquan)
 }
 
+plotres=function(mod){
+  res=RQR.ZOAB(mod)
+  smp <- data.frame(norm = res)
+  s1<-ggplot(data = smp, mapping = aes(sample = norm))  +
+    stat_qq_band(conf = 0.95) +
+    stat_qq_line() +
+    stat_qq_point() +
+    labs(x = "Theoretical Quantiles", y = "Quantile Residuals") +
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  s2<-ggplot()+
+    geom_point(aes(x=seq_along(res),y=res))+ 
+    xlab("Index") + ylab("Quantile Residuals") +
+    geom_hline(yintercept=-2,linetype="dashed")+ 
+    geom_hline(yintercept=2,linetype="dashed")+ 
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  datresi=data.frame(res=res)
+  s3<-ggplot(datresi, aes(x = res, y = after_stat(density))) + 
+    geom_histogram(fill = "grey", color = "black",bins = 10) +
+    xlab("Quantile Residuals") + ylab("density") +
+    theme(
+      panel.border = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.background = element_blank(),
+      axis.line = element_line(colour = "grey"),
+      text=element_text(size=20,family="serif")
+    )
+  
+  print(ggarrange(s1,s2,s3))
+}
+            
 
 
 
@@ -455,4 +509,98 @@ gphi=function(mod){
   ddphi<-list("dphi"=dphi,"d2phi2"=d2phi2)
 }            
 
+
+## Standard error continuous part            
+stderror.cont=function(mod,conf=0.95){
+degree=3
+order=2
+n=mod$N
+s=ncol(mod$sigma.x)
+mu=mod$mu.fv
+phi=mod$sigma.fv
+zast<-ifelse(mod$y==0 | mod$y==1, 1,0)
+
+if(is.null(mod$mu.s)==FALSE){
+  p=ncol(mod$mu.x)-ncol(mod$mu.s)  
+  nq=ncol(mod$mu.s)
+  qj=0
+  for(i in 1:nq){
+    qj[i]=length(mod$mu.coefSmo[[i]][11]$knots)
+  }
+  X=as.matrix(mod$mu.x[,-which(colnames(mod$mu.x) %in% colnames(mod$mu.s))])
+  bet=matrix(mod$mu.coefficients[-which(colnames(mod$mu.x) %in% colnames(mod$mu.s))], nrow=p)  
+  gamms=list(NULL)
+  for(i in 1:nq){
+    gamms[[i]]=mod$mu.coefSmo[[i]][1]$coef
+  }
+  gamm=Reduce("rbind",gamms)
+  Bs<-list(NULL)
+  Ds<-list(NULL)
+  for (i in 1:nq){
+    ajus=pb(mod$mu.x[,which(colnames(mod$mu.x) %in% colnames(mod$mu.s)[i])],
+            degree=degree,order=order,
+            control=pb.control(inter=(length(mod$mu.coefSmo[[1]]$knots)-3)),
+            lambda = mod$mu.lambda[i])
+    Bs[[i]]=attr(ajus,"X")
+    Ds[[i]]=t(attr(ajus,"D"))%*%attr(ajus,"D")*mod$mu.lambda[i]
+  }
+  
+  B=Reduce("cbind",Bs)
+  D=0.5*bdiag(Ds)
+  
+} else{
+  p=ncol(mod$mu.x)
+  bet=matrix(mod$mu.coefficients,nrow=p)
+  X=mod$mu.x}
+
+kapp=matrix(mod$sigma.coefficients,nrow=s)
+N=mod$sigma.x
+T1=diag(gmu(mod)$dmu,n)
+T2=diag(gphi(mod)$dphi,n)
+
+W1=(phi^2*(trigamma(mu*phi)+trigamma((1-mu)*phi)))*gmu(mod)$dmu^2
+W=diag(as.numeric((1-zast)*W1),n)
+Pstar1=(trigamma(mu*phi)*mu^2+trigamma((1-mu)*phi)*(1-mu)^2-trigamma(phi))*gphi(mod)$dphi^2
+Pstar=diag(as.numeric((1-zast)*Pstar1),n)
+W=diag(as.numeric((1-zast)*Pstar1),n)
+Wstar1=(phi*trigamma(mu*phi)*mu-phi*trigamma((1-mu)*phi)*
+          (1-mu))*gmu(mod)$dmu*gphi(mod)$dphi
+Wstar=diag(as.numeric((1-zast)*Wstar1),n)
+
+
+Kbb= t(X)%*%W%*%X
+Kkk= t(N)%*%Pstar%*%N
+Kgg= t(B)%*%W%*%B+D
+Kbk= t(X)%*%Wstar%*%N
+Kgk= t(N)%*%Wstar%*%B
+Kbg= t(X)%*%W%*%B
+Kggl=t(B)%*%W%*%B
+Ktt=rbind(cbind(Kbb,Kbk,Kbg),cbind(t(Kbk),Kkk,Kgk),cbind(t(Kbg),t(Kgk),Kgg))
+Kttinv=ginv(as.matrix(Ktt))
+coef=c(bet,kapp)
+EP=sqrt(diag(Kttinv)[1:length(coef)])
+VAR=diag(Kttinv)[1:length(coef)]
+valorp = 0
+wald = 0
+for(i in 1:length(coef)){
+  wald[i] = wald.test(VAR[i], coef[i], Terms = 1)$result$chi2[1]
+  valorp[i] = wald.test(VAR[i], coef[i], Terms = 1)$result$chi2[3]
+}
+
+IC<-function(nconf,param, EP){
+  lower<- c(param)-qnorm(1-nconf/2)*EP
+  upper<- c(param)+qnorm(1-nconf/2)*EP
+  obj.out <- list(IC=cbind(cbind(lower,upper)))
+  return(obj.out)
+}
+
+interval=rbind(IC(1-conf, bet, EP[1:p])$IC,
+               IC(1-conf, kapp, EP[(p+1):(s+p)])$IC)
+
+
+coefficients = data.frame(coef, EP,  round(valorp,4), interval)
+colnames(coefficients) = c("Estimate","Std.err", "Pr(>|W|)","IC-lower","IC-upper")
+return(printCoefmat(as.matrix(coefficients), digits = 4))
+}
+            
 
