@@ -89,6 +89,8 @@ rBRr<-function(n,mu,alpha,phi){
 
 
 ## Function to create P-splines similar the pb function of GAMLSS
+## GAMLSS citation: R. A. Rigby, D. M. Stasinopoulos (2005). “Generalized additive  
+## models for location, scale and shape,(with discussion).” Applied Statistics, 54, 507-554.
 pbfake <- function(x, df = NULL, max.df = NULL, 
                inter = 20, degree= 3, order = 2,quantiles=F) 
 {
